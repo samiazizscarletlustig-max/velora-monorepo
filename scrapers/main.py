@@ -18,6 +18,7 @@ load_dotenv(ROOT_DIR / '.env')
 from platforms.shopify_scraper import scrape_shopify
 from core.delta_analyzer import DeltaAnalyzer
 from ai.engine import generate_strategic_insights  # 🔧 استيراد محرك الذكاء الاصطناعي
+from ai.email_sender import send_insight_email  # 🔧 استيراد نظام الإيميلات
 
 # إعداد نظام الـ Logging لمتابعة ما يحدث في الـ Terminal
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -127,6 +128,8 @@ def main():
     if insights:
         logger.info(f"💾 Saving {len(insights)} AI Insights to Supabase...")
         db_insights = []
+        critical_insights = []  # 🚨 للتجميع الذكي
+        
         for ins in insights:
             db_insights.append({
                 "workspace_id": "00000000-0000-0000-0000-000000000001",
@@ -137,12 +140,27 @@ def main():
                 "ai_recommendation": ins.get("ai_recommendation", ""),
                 "severity": ins.get("severity", "medium")
             })
+            
+            # 🎯 ذكي: نجمع فقط الـ Critical و High
+            if ins.get("severity") in ["critical", "high"]:
+                critical_insights.append(ins)
         
         try:
             supabase.table("ai_insights").insert(db_insights).execute()
             logger.info("✅ Magic Loop Closed! AI Insights saved successfully!")
         except Exception as e:
             logger.error(f"Error saving AI insights: {e}")
+        
+        # 📧 إرسال الإيميل فقط عند وجود تحديثات مهمة
+        if critical_insights:
+            user_email = "samiazizscarletlustig@gmail.com"  # مؤقتاً - سنغيره لاحقاً
+            logger.info(f"📧 Sending email alert for {len(critical_insights)} critical/high insights...")
+            try:
+                send_insight_email(user_email, critical_insights, competitor_name)
+            except Exception as e:
+                logger.error(f"Error sending email: {e}")
+        else:
+            logger.info("ℹ️ No critical/high severity insights. Skipping email notification.")
 
     logger.info("🎉 Scraping, Delta Sync, and AI Analysis completed successfully!")
 
