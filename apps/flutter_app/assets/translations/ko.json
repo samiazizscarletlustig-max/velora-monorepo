@@ -1,0 +1,10 @@
+{
+    "nav": {
+      "dashboard": "대시보드",
+      "analytics": "분석",
+      "competitors": "경쟁사",
+      "insights": "AI 인사이트",
+      "notes": "전략적 노트",
+      "settings": "설정"
+    }
+  }

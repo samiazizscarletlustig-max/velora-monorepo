@@ -1,0 +1,10 @@
+{
+    "nav": {
+      "dashboard": "ダッシュボード",
+      "analytics": "分析",
+      "competitors": "競合他社",
+      "insights": "AIインサイト",
+      "notes": "戦略的ノート",
+      "settings": "設定"
+    }
+  }

@@ -1,103 +1,114 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
-import '../../features/billing/screens/billing_screen.dart';
-import '../../features/ai_chat/screens/ai_chat_screen.dart';
-import '../../features/auth/screens/login_screen.dart';
-import '../../features/auth/screens/register_screen.dart';
-import '../../features/auth/screens/onboarding_screen.dart';
-import '../../features/settings/screens/settings_screen.dart';
+import '../../shared/widgets/main_scaffold.dart';
 
-// Mock Auth & Onboarding State Providers
-final authStateProvider = StateProvider<bool>((ref) => false);
-final hasCompletedOnboardingProvider = StateProvider<bool>((ref) => false);
+// ═══════════════════════════════════════════════════════════
+// Placeholder Screens (شاشات مؤقتة - سنستبدلها لاحقاً)
+// ═══════════════════════════════════════════════════════════
 
-final routerProvider = Provider<GoRouter>((ref) {
-  final isAuthenticated = ref.watch(authStateProvider);
-  final hasCompletedOnboarding = ref.watch(hasCompletedOnboardingProvider);
+class PlaceholderScreen extends StatelessWidget {
+  final String title;
+  
+  const PlaceholderScreen({
+    super.key, 
+    required this.title,
+  });
 
-  return GoRouter(
-    initialLocation: '/login',
-    redirect: (context, state) {
-      final isAuthRoute = state.matchedLocation == '/login' || state.matchedLocation == '/register';
-      
-      if (!isAuthenticated && !isAuthRoute) {
-        return '/login';
-      }
-      
-      if (isAuthenticated && isAuthRoute) {
-        if (!hasCompletedOnboarding) {
-          return '/onboarding';
-        }
-        return '/dashboard';
-      }
-      
-      if (isAuthenticated && state.matchedLocation == '/onboarding' && hasCompletedOnboarding) {
-        return '/dashboard';
-      }
-
-      return null;
-    },
-    routes: [
-      GoRoute(
-        path: '/login',
-        builder: (context, state) => const LoginScreen(),
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Text(
+        title,
+        style: Theme.of(context).textTheme.displayLarge,
       ),
-      GoRoute(
-        path: '/register',
-        builder: (context, state) => const RegisterScreen(),
-      ),
-      GoRoute(
-        path: '/onboarding',
-        builder: (context, state) => const OnboardingScreen(),
-      ),
-      GoRoute(
-        path: '/dashboard',
-        builder: (context, state) => Scaffold(
-          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-          appBar: AppBar(
-            backgroundColor: Theme.of(context).scaffoldBackgroundColor,
-            title: const Text('Dashboard / لوحة القيادة'),
-            bottom: const PreferredSize(
-              preferredSize: Size.fromHeight(1),
-              child: Divider(height: 1, color: Color(0xFF222938)),
-            ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Navigator Keys (مفاتيح التنقل)
+// ═══════════════════════════════════════════════════════════
+
+final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>(
+  debugLabel: 'root',
+);
+
+final GlobalKey<NavigatorState> _shellNavigatorKey = GlobalKey<NavigatorState>(
+  debugLabel: 'shell',
+);
+
+// ═══════════════════════════════════════════════════════════
+// App Router (الراوتر الرئيسي)
+// ═══════════════════════════════════════════════════════════
+
+final GoRouter appRouter = GoRouter(
+  navigatorKey: _rootNavigatorKey,
+  initialLocation: '/dashboard',
+  
+  routes: [
+    // ShellRoute = يحافظ على Sidebar موجود دائماً
+    ShellRoute(
+      navigatorKey: _shellNavigatorKey,
+      builder: (context, state, child) {
+        return MainScaffold(child: child);
+      },
+      
+      // المسارات داخل الـ Shell
+      routes: [
+        // ═══ Dashboard ═══
+        GoRoute(
+          path: '/dashboard',
+          name: 'dashboard',
+          builder: (context, state) => const PlaceholderScreen(
+            title: 'Dashboard',
           ),
-          body: Center(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                ElevatedButton(
-                  onPressed: () => context.push('/settings'),
-                  child: const Text('Settings / الإعدادات'),
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: () => context.push('/chat'),
-                  child: const Text('AI Chat / محادثة الذكاء الاصطناعي'),
-                ),
-                const SizedBox(height: 16),
-                ElevatedButton(
-                  onPressed: () => context.push('/billing'),
-                  child: const Text('Billing / الفوترة'),
-                )
-              ],
-            )
-          )
         ),
-      ),
-      GoRoute(
-        path: '/chat',
-        builder: (context, state) => const AIChatScreen(),
-      ),
-      GoRoute(
-        path: '/billing',
-        builder: (context, state) => const BillingScreen(),
-      ),
-      GoRoute(
-        path: '/settings',
-        builder: (context, state) => const SettingsScreen(),
-      ),
-    ],
-  );
-});
+        
+        // ═══ Analytics ═══
+        GoRoute(
+          path: '/analytics',
+          name: 'analytics',
+          builder: (context, state) => const PlaceholderScreen(
+            title: 'Analytics',
+          ),
+        ),
+        
+        // ═══ Competitors ═══
+        GoRoute(
+          path: '/competitors',
+          name: 'competitors',
+          builder: (context, state) => const PlaceholderScreen(
+            title: 'Competitors',
+          ),
+        ),
+        
+        // ═══ AI Insights ═══
+        GoRoute(
+          path: '/insights',
+          name: 'insights',
+          builder: (context, state) => const PlaceholderScreen(
+            title: 'AI Insights',
+          ),
+        ),
+        
+        // ═══ Strategic Notes ═══
+        GoRoute(
+          path: '/notes',
+          name: 'notes',
+          builder: (context, state) => const PlaceholderScreen(
+            title: 'Strategic Notes',
+          ),
+        ),
+        
+        // ═══ Settings ═══
+        GoRoute(
+          path: '/settings',
+          name: 'settings',
+          builder: (context, state) => const PlaceholderScreen(
+            title: 'Settings',
+          ),
+        ),
+      ],
+    ),
+  ],
+);

@@ -1,0 +1,10 @@
+{
+    "nav": {
+      "dashboard": "Tableau de Bord",
+      "analytics": "Analytique",
+      "competitors": "Concurrents",
+      "insights": "Aperçus IA",
+      "notes": "Notes Stratégiques",
+      "settings": "Paramètres"
+    }
+  }

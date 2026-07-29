@@ -1,0 +1,10 @@
+{
+    "nav": {
+      "dashboard": "Dashboard",
+      "analytics": "Analytics",
+      "competitors": "Competitors",
+      "insights": "AI Insights",
+      "notes": "Strategic Notes",
+      "settings": "Settings"
+    }
+  }

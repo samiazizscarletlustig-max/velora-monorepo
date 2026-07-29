@@ -1,0 +1,10 @@
+{
+    "nav": {
+      "dashboard": "Panel de Control",
+      "analytics": "Analítica",
+      "competitors": "Competidores",
+      "insights": "Insights de IA",
+      "notes": "Notas Estratégicas",
+      "settings": "Configuración"
+    }
+  }

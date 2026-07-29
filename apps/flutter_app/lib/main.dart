@@ -1,40 +1,54 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:easy_localization/easy_localization.dart';
+
+import 'core/theme/app_theme.dart';
 import 'core/router/app_router.dart';
-import 'core/theme/theme_provider.dart';
+import 'core/config/supabase_config.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  
-  // Initialize SharedPreferences
-  final prefs = await SharedPreferences.getInstance();
+  await EasyLocalization.ensureInitialized();
+
+  // ✅ استخدام دالة التهيئة الموجودة في ملفك
+  await SupabaseConfig.initialize();
 
   runApp(
     ProviderScope(
-      overrides: [
-        sharedPreferencesProvider.overrideWithValue(prefs),
-      ],
-      child: const VeloraProductionApp(),
+      child: EasyLocalization(
+        supportedLocales: const [
+          Locale('en'),
+          Locale('fr'),
+          Locale('es'),
+          Locale('pt'),
+          Locale('ar'),
+          Locale('ja'),
+          Locale('ko'),
+          Locale('zh'),
+        ],
+        path: 'assets/translations',
+        fallbackLocale: const Locale('en'),
+        child: const VeloraApp(),
+      ),
     ),
   );
 }
 
-class VeloraProductionApp extends ConsumerWidget {
-  const VeloraProductionApp({super.key});
+class VeloraApp extends ConsumerWidget {
+  const VeloraApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final router = ref.watch(routerProvider);
-    final themeMode = ref.watch(themeProvider);
-
     return MaterialApp.router(
       title: 'Velora',
-      debugShowCheckedModeBanner: false,
-      themeMode: themeMode,
       theme: AppTheme.lightTheme,
       darkTheme: AppTheme.darkTheme,
-      routerConfig: router,
+      themeMode: ThemeMode.dark,
+      routerConfig: appRouter,
+      localizationsDelegates: context.localizationDelegates,
+      supportedLocales: context.supportedLocales,
+      locale: context.locale,
+      debugShowCheckedModeBanner: false,
     );
   }
 }
