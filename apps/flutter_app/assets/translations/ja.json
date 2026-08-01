@@ -1,10 +1,10 @@
 {
-    "nav": {
-      "dashboard": "ダッシュボード",
-      "analytics": "分析",
-      "competitors": "競合他社",
-      "insights": "AIインサイト",
-      "notes": "戦略的ノート",
-      "settings": "設定"
-    }
-  }
+  "common": {"add": "追加", "cancel": "キャンセル", "delete": "削除", "save": "保存", "edit": "編集", "view_all": "すべて表示"},
+  "nav": {"dashboard": "ダッシュボード", "analytics": "分析", "competitors": "競合", "insights": "AIインサイト", "notes": "ノート", "settings": "設定"},
+  "dashboard": {"welcome": "おかえりなさい", "subtitle": "今日の状況", "recent_insights": "最新のインサイト", "view_all": "すべて表示", "competitors": "競合", "products": "製品", "insights": "インサイト", "critical": "重要", "no_insights": "インサイトなし"},
+  "competitors": {"title": "競合", "subtitle": "競合を監視", "add_new": "追加", "search_hint": "検索...", "all_competitors": "すべて", "total": "合計", "products": "製品", "scanned_week": "今週スキャン済み", "pending": "保留中", "name": "名前", "website": "ウェブサイト", "shopify_store": "Shopifyストア", "empty_title": "競合なし", "empty_subtitle": "最初の競合を追加", "add_first": "追加", "no_results": "結果なし", "try_different_search": "別の検索を試す", "delete_title": "削除しますか?", "delete_confirm": "この操作は元に戻せません。", "deleted_success": "削除しました", "added_success": "追加しました"},
+  "insights": {"title": "AIインサイト", "subtitle": "Gemini AIからの戦略的インテリジェンス", "search_hint": "インサイトを検索...", "filter_all": "すべて", "filter_critical": "重大", "filter_high": "高", "filter_medium": "中", "filter_low": "低", "all_insights": "すべてのインサイト", "total": "合計", "critical": "重大", "high": "高", "this_week": "今週", "summary": "概要", "detailed_analysis": "詳細分析", "tap_to_read": "タップして続きを読む", "empty_title": "インサイトなし", "empty_subtitle": "スクレーパーを実行して分析を生成", "no_results": "一致するインサイトなし", "try_different_filter": "フィルターを削除してみてください"},
+  "analytics": {"title": "分析", "subtitle": "視覚的なインサイトとトレンド", "refresh": "データを更新", "competitors": "競合", "products": "製品", "insights": "インサイト", "avg_per_competitor": "平均製品/競合", "insights_distribution": "インサイト分布", "by_severity": "重大度別", "insights_timeline": "インサイトタイムライン", "last_30_days": "過去30日間", "top_competitors": "トップ競合", "by_products_count": "製品数別", "no_data": "データなし", "run_scraper": "スクレーパーを実行"},
+  "notes": {"title": "戦略的ノート", "new_note": "新しいノート", "search_hint": "ノートを検索...", "all": "すべて", "pinned": "ピン留め", "pin": "ピン留め", "unpin": "ピン留め解除", "preview_mode": "プレビュー", "edit_mode": "編集", "delete_title": "ノートを削除?", "delete_confirm": "このノートは永久に削除されます。", "deleted_success": "ノートを削除しました", "no_note_selected": "ノートが選択されていません", "select_or_create": "サイドバーからノートを選択するか、新規作成してください", "no_notes": "ノートなし", "create_first": "最初のノートを作成"},
+  "settings": {"title": "設定", "subtitle": "Velora体験をカスタマイズ", "appearance": "外観", "appearance_subtitle": "テーマと言語の設定", "theme": "テーマ", "theme_dark": "ダーク", "theme_light": "ライト", "theme_system": "システム", "language": "言語", "notifications": "通知", "notifications_subtitle": "アラートと自動更新", "enable_notifications": "通知を有効", "enable_notifications_desc": "重要なインサイトのアラートを受信", "auto_refresh": "自動更新", "auto_refresh_desc": "5分ごとにデータを更新", "connection": "接続", "connection_subtitle": "バックエンドと同期", "supabase_status": "Supabaseステータス", "connected": "接続済み", "disconnected": "切断", "data_management": "データ管理", "data_management_subtitle": "キャッシュとストレージ", "clear_cache": "キャッシュをクリア", "clear_cache_desc": "一時データを削除", "clear_cache_title": "キャッシュをクリア?", "clear_cache_confirm": "すべての一時データが削除されます。設定は保持されます。", "cache_cleared": "キャッシュをクリアしました", "cache_clear_failed": "クリアに失敗", "about": "について", "about_subtitle": "アプリ情報", "app_name": "アプリ", "version": "バージョン", "description": "説明", "author": "作者", "website": "ウェブサイト"}
+}

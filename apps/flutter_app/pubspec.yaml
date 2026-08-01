@@ -27,10 +27,13 @@ dependencies:
   
   # UI & Design System
   google_fonts: ^6.2.1
+  fl_chart: ^0.68.0                # 🎯 Charts & Graphs for Analytics
+  flutter_markdown: ^0.7.3         # 📝 Markdown rendering for Notes
   
   # Utils
   intl: ^0.19.0
   shared_preferences: ^2.2.3
+  url_launcher: ^6.2.5             # 🔗 Open links (About section)
 
 dev_dependencies:
   flutter_test:
