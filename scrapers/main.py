@@ -17,22 +17,27 @@ load_dotenv(ROOT_DIR / '.env')
 # استيراد الدوال من الملفات الأخرى في المجلدات الفرعية
 from platforms.shopify_scraper import scrape_shopify
 from core.delta_analyzer import DeltaAnalyzer
-from ai.engine import generate_strategic_insights  # 🔧 استيراد محرك الذكاء الاصطناعي
-from ai.email_sender import send_insight_email  # 🔧 استيراد نظام الإيميلات
+from ai.engine import generate_strategic_insights
+from ai.email_sender import send_insight_email
 
-# إعداد نظام الـ Logging لمتابعة ما يحدث في الـ Terminal
+# إعداد نظام الـ Logging
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 def main():
-    # 1. تحميل متغيرات البيئة (تم تحميلها مسبقاً من الجذر)
+    # 1. تحميل متغيرات البيئة
     supabase_url = os.getenv("SUPABASE_URL")
     supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+    
+    # استخدام رابط افتراضي للاختبار إذا لم يوجد متغير بيئة
     test_competitor_url = os.getenv("COMPETITOR_URL", "https://www.gymshark.com")
 
-    # 🔧 تشخيص: للتأكد من أن البرنامج يقرأ ملف .env بنجاح
     print(f"🔍 DEBUG - SUPABASE_URL: {supabase_url}")
-    print(f"🔍 DEBUG - SUPABASE_KEY: {supabase_key[:15]}..." if supabase_key else "🔍 DEBUG - SUPABASE_KEY: None (الملف غير مقروء!)")
+    if not supabase_key:
+        logger.error("❌ SUPABASE_SERVICE_ROLE_KEY is missing!")
+        sys.exit(1)
+    else:
+        print(f"🔍 DEBUG - SUPABASE_KEY: {supabase_key[:15]}...")
 
     if not supabase_url or not supabase_key:
         logger.error("Missing SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY in environment variables.")
@@ -53,14 +58,17 @@ def main():
 
     # 3. جلب بيانات المنافس من قاعدة البيانات
     try:
-        comp_res = supabase.table("competitors").select("id, name").eq("website_url", target_url).execute()
+        # ✅ تم تصحيح اسم العمود من website_url إلى website
+        comp_res = supabase.table("competitors").select("id, name").eq("website", target_url).execute()
+        
         if comp_res.data:
             competitor_id = comp_res.data[0]["id"]
             competitor_name = comp_res.data[0]['name']
             logger.info(f"✅ Found existing competitor: {competitor_name} ({competitor_id})")
         else:
-            logger.error(f"❌ Competitor with website_url '{target_url}' not found in DB. Please ensure it is added first.")
-            sys.exit(1)
+            logger.warning(f"⚠️ Competitor with website '{target_url}' not found in DB.")
+            logger.info("💡 Tip: Add the competitor via the app first, then run the scraper.")
+            sys.exit(0) # خروج آمن بدلاً من خطأ فادح
     except Exception as e:
         logger.error(f"Error querying competitors: {e}")
         sys.exit(1)
@@ -84,13 +92,11 @@ def main():
     # 6. إدراج البيانات الجديدة/المحدثة في Supabase
     logger.info(f"📦 Pushing {len(delta_products)} delta updates to Supabase...")
     
-    # استخدام التوقيت الحالي كـ timestamp للتحديث
     current_time = datetime.now(timezone.utc).isoformat()
     for p in delta_products:
         p["last_updated_at"] = current_time
 
     try:
-        # استخدام Upsert لمنع التكرار بناءً على competitor_id و product_url
         upsert_res = supabase.table("products").upsert(
             delta_products, 
             on_conflict="competitor_id,product_url"
@@ -101,34 +107,35 @@ def main():
         
         updated_records = upsert_res.data if upsert_res.data else delta_products
         
-        # إدراج سجلات الأسعار في جدول price_history
+        # محاولة إدراج سجلات الأسعار (مع حماية ضد عدم وجود الجدول)
         if updated_records:
             price_history_records = []
             for record in updated_records:
                 if "id" in record:
                     price_history_records.append({
                         "product_id": record["id"],
-                        "price": record["current_price"]
+                        "price": record.get("current_price", 0)
                     })
             
             if price_history_records:
-                supabase.table("price_history").insert(price_history_records).execute()
-                logger.info(f"📈 Inserted price history for {len(price_history_records)} records.")
-            else:
-                logger.warning("No 'id' returned for upserted products. Skipping price history insertion.")
+                try:
+                    supabase.table("price_history").insert(price_history_records).execute()
+                    logger.info(f"📈 Inserted price history for {len(price_history_records)} records.")
+                except Exception as pe:
+                    logger.warning(f"⚠️ Could not insert price_history (table might not exist): {pe}")
 
     except Exception as e:
         logger.error(f"Error upserting delta products to Supabase: {e}")
         sys.exit(1)
 
-    # 🧠 7. لحظة السحر: توليد AI Insights
+    # 🧠 7. توليد AI Insights
     logger.info("🧠 Generating strategic insights with Gemini...")
     insights = generate_strategic_insights(competitor_name, delta_products)
     
     if insights:
         logger.info(f"💾 Saving {len(insights)} AI Insights to Supabase...")
         db_insights = []
-        critical_insights = []  # 🚨 للتجميع الذكي
+        critical_insights = []
         
         for ins in insights:
             db_insights.append({
@@ -141,7 +148,6 @@ def main():
                 "severity": ins.get("severity", "medium")
             })
             
-            # 🎯 ذكي: نجمع فقط الـ Critical و High
             if ins.get("severity") in ["critical", "high"]:
                 critical_insights.append(ins)
         
@@ -151,9 +157,9 @@ def main():
         except Exception as e:
             logger.error(f"Error saving AI insights: {e}")
         
-        # 📧 إرسال الإيميل فقط عند وجود تحديثات مهمة
+        #  إرسال الإيميل عند وجود تحديثات مهمة
         if critical_insights:
-            user_email = "samiazizscarletlustig@gmail.com"  # مؤقتاً - سنغيره لاحقاً
+            user_email = "samiazizscarletlustig@gmail.com"
             logger.info(f"📧 Sending email alert for {len(critical_insights)} critical/high insights...")
             try:
                 send_insight_email(user_email, critical_insights, competitor_name)
