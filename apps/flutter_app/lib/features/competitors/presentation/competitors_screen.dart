@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart'; // ✅ ضروري لـ AutofillHints
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../providers/competitors_providers.dart';
 import '../../auth/providers/auth_providers.dart';
@@ -84,11 +85,33 @@ class CompetitorsScreen extends ConsumerWidget {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              TextField(controller: nameCtrl, decoration: const InputDecoration(labelText: 'Name *')),
+              // ✅ الحل القاطع: منع المعاينة التلقائية (Ghost Text) نهائياً
+              TextField(
+                controller: nameCtrl, 
+                decoration: const InputDecoration(labelText: 'Name *'),
+                keyboardType: TextInputType.name,
+                autofillHints: const [AutofillHints.newUsername], // يخبر المتصفح أن هذا اسم جديد
+                enableSuggestions: false,
+                autocorrect: false,
+              ),
               const SizedBox(height: 12),
-              TextField(controller: websiteCtrl, decoration: const InputDecoration(labelText: 'Website')),
+              TextField(
+                controller: websiteCtrl, 
+                decoration: const InputDecoration(labelText: 'Website'),
+                autofillHints: const [],
+                keyboardType: TextInputType.url,
+                enableSuggestions: false,
+                autocorrect: false,
+              ),
               const SizedBox(height: 12),
-              TextField(controller: shopifyCtrl, decoration: const InputDecoration(labelText: 'Shopify Store URL')),
+              TextField(
+                controller: shopifyCtrl, 
+                decoration: const InputDecoration(labelText: 'Shopify Store URL'),
+                autofillHints: const [],
+                keyboardType: TextInputType.url,
+                enableSuggestions: false,
+                autocorrect: false,
+              ),
             ],
           ),
         ),

@@ -3,14 +3,14 @@ import '../../data/competitors_repository.dart';
 
 // ═══════════════════════════════════════════
 // Repository Provider
-// ═══════════════════════════════════════════
+// ══════════════════════════════════════════
 
 /// Provider للـ Repository (Singleton)
 final competitorsRepositoryProvider = Provider<CompetitorsRepository>((ref) {
   return CompetitorsRepository();
 });
 
-// ═══════════════════════════════════════════
+// ══════════════════════════════════════════
 // Data Providers
 // ═══════════════════════════════════════════
 
@@ -26,7 +26,7 @@ final competitorsStatsProvider = FutureProvider<Map<String, int>>((ref) async {
   return repository.getStats();
 });
 
-// ═══════════════════════════════════════════
+// ══════════════════════════════════════════
 // UI State Providers
 // ═══════════════════════════════════════════
 
@@ -60,14 +60,19 @@ final addCompetitorProvider =
     FutureProvider.autoDispose.family<bool, AddCompetitorParams>(
   (ref, params) async {
     final repository = ref.read(competitorsRepositoryProvider);
+    
+    // ✅ تم وضع الـ UID الخاص بك للتجربة على الويب
+    // ⚠️ TODO: قبل النشر، استبدل هذا السطر بجلب الـ ID ديناميكياً من Supabase Auth
+    final userId = "20a37844-b75d-4064-bf86-3bbe3c59e22d"; 
+
     final result = await repository.addCompetitor(
+      userId: userId,
       name: params.name,
       website: params.website,
       shopifyStore: params.shopifyStore,
     );
 
     if (result != null) {
-      // تحديث القائمة بعد الإضافة الناجحة
       ref.invalidate(competitorsListProvider);
       ref.invalidate(competitorsStatsProvider);
       return true;
@@ -83,7 +88,6 @@ final deleteCompetitorProvider =
   final result = await repository.deleteCompetitor(id);
 
   if (result) {
-    // تحديث القائمة بعد الحذف الناجح
     ref.invalidate(competitorsListProvider);
     ref.invalidate(competitorsStatsProvider);
   }
@@ -92,7 +96,7 @@ final deleteCompetitorProvider =
 
 // ═══════════════════════════════════════════
 // Data Classes
-// ═══════════════════════════════════════════
+// ══════════════════════════════════════════
 
 /// معطيات إضافة منافس جديد
 class AddCompetitorParams {
