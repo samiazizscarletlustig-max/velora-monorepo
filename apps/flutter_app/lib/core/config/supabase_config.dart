@@ -2,13 +2,13 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Configuration class for Supabase Initialization
 class SupabaseConfig {
-  // 🔌 INTEGRATION POINT: أضف رابط مشروع Supabase الخاص بك هنا (موجود في إعدادات API في Supabase)
+  // 🔗 رابط مشروع Supabase (من Dashboard → Settings → API)
   static const String _supabaseUrl = String.fromEnvironment(
     'SUPABASE_URL',
-    defaultValue: 'https://wlofrpayftqffczocjdz.supabase.co',
+    defaultValue: 'https://wlofrpayftqffcZocjdz.supabase.co',
   );
 
-  // 🔌 INTEGRATION POINT: أضف مفتاح Anon Key الخاص بـ Supabase هنا (آمن للاستخدام في التطبيق)
+  // 🔑 مفتاح Publishable (anon) — آمن للاستخدام داخل التطبيق
   static const String _supabaseAnonKey = String.fromEnvironment(
     'SUPABASE_ANON_KEY',
     defaultValue: 'sb_publishable_4Gz-quL2ErxsKC17FdQmfw_elWCuoT4',

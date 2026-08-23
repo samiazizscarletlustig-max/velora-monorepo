@@ -14,9 +14,9 @@ import '../../features/settings/presentation/screens/settings_screen.dart';
 final GlobalKey<NavigatorState> _rootNavigatorKey =
     GlobalKey<NavigatorState>(debugLabel: 'root');
 
-/// الـ router يتفاعل مع حالة المصادقة:
-/// - بلا جلسة  → يُجبر على /auth
-/// - مع جلسة   → يُبعد عن /auth
+/// The router reacts to the authentication state:
+/// - No session → forces to /auth
+/// - With session → redirects away from /auth
 final goRouterProvider = Provider<GoRouter>((ref) {
   final router = GoRouter(
     navigatorKey: _rootNavigatorKey,
@@ -25,42 +25,65 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       final auth = ref.read(authStateProvider);
       final loggedIn = auth.whenOrNull(data: (s) => s.isAuthenticated) ?? false;
       final path = state.matchedLocation;
-      final onAuth = path == '/auth';
+      final isAuthRoute = path == '/auth';
 
-      if (!loggedIn && !onAuth) return '/auth';
-      if (loggedIn && onAuth) return '/dashboard';
+      // إذا لم يكن مسجل دخول، ويحاول الوصول لأي صفحة أخرى → أرسله إلى شاشة الدخول
+      if (!loggedIn && !isAuthRoute) return '/auth';
+
+      // إذا كان مسجل دخول، ويحاول الوصول إلى شاشة الدخول → أرسله إلى لوحة التحكم
+      if (loggedIn && isAuthRoute) return '/dashboard';
+
+      // غير ذلك → ابقَ حيث أنت
       return null;
     },
     routes: [
-      // شاشة المصادقة (خارج الـ Shell — بلا sidebar)
+      // شاشة المصادقة (خارج Shell — بدون شريط جانبي)
       GoRoute(
         path: '/auth',
         name: 'auth',
         builder: (context, state) => const AuthScreen(),
       ),
 
-      // التطبيق الكامل (داخل الـ Shell)
+      // التطبيق الرئيسي (داخل Shell — مع الشريط الجانبي)
       ShellRoute(
         builder: (context, state, child) => MainScaffold(child: child),
         routes: [
-          GoRoute(path: '/dashboard', name: 'dashboard',
-              builder: (c, s) => const DashboardScreen()),
-          GoRoute(path: '/analytics', name: 'analytics',
-              builder: (c, s) => const AnalyticsScreen()),
-          GoRoute(path: '/competitors', name: 'competitors',
-              builder: (c, s) => const CompetitorsScreen()),
-          GoRoute(path: '/insights', name: 'insights',
-              builder: (c, s) => const InsightsScreen()),
-          GoRoute(path: '/notes', name: 'notes',
-              builder: (c, s) => const NotesScreen()),
-          GoRoute(path: '/settings', name: 'settings',
-              builder: (c, s) => const SettingsScreen()),
+          GoRoute(
+            path: '/dashboard',
+            name: 'dashboard',
+            builder: (c, s) => const DashboardScreen(),
+          ),
+          GoRoute(
+            path: '/analytics',
+            name: 'analytics',
+            builder: (c, s) => const AnalyticsScreen(),
+          ),
+          GoRoute(
+            path: '/competitors',
+            name: 'competitors',
+            builder: (c, s) => const CompetitorsScreen(),
+          ),
+          GoRoute(
+            path: '/insights',
+            name: 'insights',
+            builder: (c, s) => const InsightsScreen(),
+          ),
+          GoRoute(
+            path: '/notes',
+            name: 'notes',
+            builder: (c, s) => const NotesScreen(),
+          ),
+          GoRoute(
+            path: '/settings',
+            name: 'settings',
+            builder: (c, s) => const SettingsScreen(),
+          ),
         ],
       ),
     ],
   );
 
-  // عند أي تغيّر في المصادقة → أعد تقييم التوجيه فوراً.
+  // عند أي تغيير في حالة المصادقة → إعادة تقييم التوجيه فوراً
   ref.listen(authStateProvider, (_, __) => router.refresh());
 
   return router;

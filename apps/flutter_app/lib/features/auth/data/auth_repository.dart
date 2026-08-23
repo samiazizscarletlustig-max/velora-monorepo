@@ -36,28 +36,19 @@ class AuthRepository {
     }
   }
 
-  /// إنشاء حساب جديد.
-  Future<User?> signUp({
-    required String email,
-    required String password,
-  }) async {
-    final response = await _client.auth.signUp(
-      email: email.trim().toLowerCase(),
-      password: password,
-    );
-    return response.user;
-  }
-
-  /// تسجيل الدخول.
-  Future<User?> signIn({
-    required String email,
-    required String password,
-  }) async {
-    final response = await _client.auth.signInWithPassword(
-      email: email.trim().toLowerCase(),
-      password: password,
-    );
-    return response.user;
+  /// ✅ تسجيل الدخول بـ Google فقط (ينشئ الحساب تلقائياً أول مرة).
+  /// يفتح نافذة Google في الويب ويعيد التوجيه بعد المصادقة.
+  Future<bool> signInWithGoogle() async {
+    try {
+      await _client.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: Uri.base.origin, // العودة إلى التطبيق بعد المصادقة
+      );
+      return true;
+    } catch (e) {
+      print('Google sign-in error: $e');
+      return false;
+    }
   }
 
   /// تسجيل الخروج.

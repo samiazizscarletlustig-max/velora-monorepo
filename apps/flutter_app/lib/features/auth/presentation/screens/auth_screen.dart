@@ -3,7 +3,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../providers/auth_providers.dart';
 
 class AuthScreen extends ConsumerStatefulWidget {
   const AuthScreen({super.key});
@@ -12,84 +11,30 @@ class AuthScreen extends ConsumerStatefulWidget {
   ConsumerState<AuthScreen> createState() => _AuthScreenState();
 }
 
-class _AuthScreenState extends ConsumerState<AuthScreen>
-    with SingleTickerProviderStateMixin {
-  final _formKey = GlobalKey<FormState>();
-  final _emailCtrl = TextEditingController();
-  final _passCtrl = TextEditingController();
-  final _confirmCtrl = TextEditingController();
-
-  bool _isLogin = true;
+class _AuthScreenState extends ConsumerState<AuthScreen> {
   bool _loading = false;
-  bool _obscure = true;
   String? _error;
 
-  late final AnimationController _floatCtrl = AnimationController(
-    vsync: this,
-    duration: const Duration(seconds: 14),
-  )..repeat();
-
-  @override
-  void dispose() {
-    _emailCtrl.dispose();
-    _passCtrl.dispose();
-    _confirmCtrl.dispose();
-    _floatCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
+  // ✅ تسجيل الدخول بـ Google فقط (ينشئ الحساب تلقائياً أول مرة)
+  Future<void> _signInWithGoogle() async {
     setState(() {
       _loading = true;
       _error = null;
     });
 
     try {
-      final repo = ref.read(authRepositoryProvider);
-      if (_isLogin) {
-        await repo.signIn(
-          email: _emailCtrl.text,
-          password: _passCtrl.text,
-        );
-      } else {
-        final user = await repo.signUp(
-          email: _emailCtrl.text,
-          password: _passCtrl.text,
-        );
-        // احتياط: إن لم تُنشأ جلسة تلقائياً، نسجّل الدخول صراحة.
-        if (user != null && Supabase.instance.client.auth.currentSession == null) {
-          await repo.signIn(
-            email: _emailCtrl.text,
-            password: _passCtrl.text,
-          );
-        }
-      }
-      // عند النجاح: البثّ + الـ router يتولّيان التوجيه — لا نفعل شيئاً هنا.
-    } on AuthException catch (e) {
-      setState(() => _error = _humanize(e.message));
+      await Supabase.instance.client.auth.signInWithOAuth(
+        OAuthProvider.google,
+        redirectTo: Uri.base.origin,
+      );
     } catch (e) {
-      setState(() => _error = 'Something went wrong. Please try again.');
-    } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted) {
+        setState(() {
+          _loading = false;
+          _error = 'Could not open Google sign-in. Please try again.';
+        });
+      }
     }
-  }
-
-  String _humanize(String msg) {
-    final m = msg.toLowerCase();
-    if (m.contains('invalid login')) return 'Wrong email or password.';
-    if (m.contains('already registered')) return 'This email already has an account.';
-    if (m.contains('password') && m.contains('least')) return 'Password must be at least 6 characters.';
-    if (m.contains('rate limit')) return 'Too many attempts. Wait a moment.';
-    return msg;
-  }
-
-  void _toggleMode() {
-    setState(() {
-      _isLogin = !_isLogin;
-      _error = null;
-      _confirmCtrl.clear();
-    });
   }
 
   @override
@@ -124,155 +69,122 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
               horizontal: wide ? 48 : 28,
               vertical: 40,
             ),
-            child: Form(
-              key: _formKey,
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (!wide) ...[
-                    _MobileLogo(),
-                    const SizedBox(height: 32),
-                  ],
-                  // ── عنوان بتباين قوي ──
-                  AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 320),
-                    child: Text(
-                      _isLogin ? 'Welcome back' : 'Create account',
-                      key: ValueKey(_isLogin),
-                      style: GoogleFonts.spaceGrotesk(
-                        fontSize: 38,
-                        fontWeight: FontWeight.w700,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (!wide) ...[
+                  const _MobileLogo(),
+                  const SizedBox(height: 32),
+                ],
+                Text(
+                  'Welcome to Velora',
+                  style: GoogleFonts.spaceGrotesk(
+                    fontSize: 38,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                    height: 1.05,
+                    letterSpacing: -1.2,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  'Sign in with your Google account to monitor your market in real time.',
+                  style: GoogleFonts.manrope(
+                    fontSize: 14.5,
+                    color: const Color(0xFF8A93A8),
+                    height: 1.5,
+                  ),
+                ),
+                const SizedBox(height: 40),
+
+                // ✅ زر Google الوحيد — بدون كلمة مرور
+                MouseRegion(
+                  cursor: SystemMouseCursors.click,
+                  child: GestureDetector(
+                    onTap: _loading ? null : _signInWithGoogle,
+                    child: AnimatedContainer(
+                      duration: const Duration(milliseconds: 180),
+                      height: 54,
+                      decoration: BoxDecoration(
                         color: Colors.white,
-                        height: 1.05,
-                        letterSpacing: -1.2,
+                        borderRadius: BorderRadius.circular(13),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withOpacity(0.25),
+                            blurRadius: 18,
+                            offset: const Offset(0, 6),
+                          ),
+                        ],
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          _loading
+                              ? const SizedBox(
+                                  width: 22,
+                                  height: 22,
+                                  child: CircularProgressIndicator(
+                                      strokeWidth: 2.4,
+                                      color: Color(0xFF0B1020)),
+                                )
+                              : const _GoogleLogo(),
+                          const SizedBox(width: 12),
+                          Text(
+                            'Continue with Google',
+                            style: GoogleFonts.manrope(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF0B1020),
+                            ),
+                          ),
+                        ],
                       ),
                     ),
                   ),
-                  const SizedBox(height: 10),
-                  Text(
-                    _isLogin
-                        ? 'Sign in to monitor your market in real time.'
-                        : 'Start tracking competitors in under a minute.',
-                    style: GoogleFonts.manrope(
-                      fontSize: 14.5,
-                      color: const Color(0xFF8A93A8),
-                      height: 1.5,
-                    ),
-                  ),
-                  const SizedBox(height: 34),
+                ),
 
-                  // ── Email ──
-                  _Field(
-                    controller: _emailCtrl,
-                    label: 'Email',
-                    hint: 'you@company.com',
-                    icon: Icons.mail_outline_rounded,
-                    keyboard: TextInputType.emailAddress,
-                    validator: (v) =>
-                        (v == null || !v.contains('@')) ? 'Enter a valid email' : null,
-                  ),
-                  const SizedBox(height: 18),
+                const SizedBox(height: 16),
 
-                  // ── Password ──
-                  _Field(
-                    controller: _passCtrl,
-                    label: 'Password',
-                    hint: '••••••••',
-                    icon: Icons.lock_outline_rounded,
-                    obscure: _obscure,
-                    toggleObscure: () => setState(() => _obscure = !_obscure),
-                    validator: (v) =>
-                        (v == null || v.length < 6) ? 'At least 6 characters' : null,
-                  ),
-
-                  // ── Confirm (signup فقط) ─
-                  AnimatedSize(
-                    duration: const Duration(milliseconds: 260),
-                    curve: Curves.easeOutCubic,
-                    alignment: Alignment.topCenter,
-                    child: _isLogin
-                        ? const SizedBox.shrink()
-                        : Padding(
-                            padding: const EdgeInsets.only(top: 18),
-                            child: _Field(
-                              controller: _confirmCtrl,
-                              label: 'Confirm password',
-                              hint: '••••••••',
-                              icon: Icons.lock_outline_rounded,
-                              obscure: _obscure,
-                              validator: (v) => v != _passCtrl.text
-                                  ? 'Passwords do not match'
-                                  : null,
-                            ),
+                AnimatedSize(
+                  duration: const Duration(milliseconds: 220),
+                  child: _error == null
+                      ? const SizedBox.shrink()
+                      : Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 11),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEF4444).withOpacity(0.12),
+                            borderRadius: BorderRadius.circular(10),
+                            border: Border.all(
+                                color: const Color(0xFFEF4444).withOpacity(0.4)),
                           ),
-                  ),
-                  const SizedBox(height: 12),
-
-                  // ── رسالة الخطأ ──
-                  AnimatedSize(
-                    duration: const Duration(milliseconds: 220),
-                    child: _error == null
-                        ? const SizedBox.shrink()
-                        : Container(
-                            margin: const EdgeInsets.only(bottom: 8),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 14, vertical: 11),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFEF4444).withOpacity(0.12),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                  color: const Color(0xFFEF4444).withOpacity(0.4)),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.error_outline_rounded,
-                                    size: 18, color: Color(0xFFFCA5A5)),
-                                const SizedBox(width: 9),
-                                Expanded(
-                                  child: Text(
-                                    _error!,
-                                    style: GoogleFonts.manrope(
-                                        fontSize: 13, color: const Color(0xFFFCA5A5)),
-                                  ),
+                          child: Row(
+                            children: [
+                              const Icon(Icons.error_outline_rounded,
+                                  size: 18, color: Color(0xFFFCA5A5)),
+                              const SizedBox(width: 9),
+                              Expanded(
+                                child: Text(
+                                  _error!,
+                                  style: GoogleFonts.manrope(
+                                      fontSize: 13, color: const Color(0xFFFCA5A5)),
                                 ),
-                              ],
-                            ),
-                          ),
-                  ),
-                  const SizedBox(height: 14),
-
-                  // ── زر الإجراء بتغذية راجعة ──
-                  _SubmitButton(
-                    loading: _loading,
-                    label: _isLogin ? 'Sign in' : 'Create account',
-                    onTap: _loading ? null : _submit,
-                  ),
-                  const SizedBox(height: 22),
-
-                  // ── تبديل الوضع ──
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        _isLogin ? 'No account yet? ' : 'Already have one? ',
-                        style: GoogleFonts.manrope(
-                            fontSize: 13.5, color: const Color(0xFF8A93A8)),
-                      ),
-                      GestureDetector(
-                        onTap: _loading ? null : _toggleMode,
-                        child: Text(
-                          _isLogin ? 'Sign up' : 'Sign in',
-                          style: GoogleFonts.manrope(
-                            fontSize: 13.5,
-                            fontWeight: FontWeight.w700,
-                            color: const Color(0xFF34D399),
+                              ),
+                            ],
                           ),
                         ),
-                      ),
-                    ],
+                ),
+
+                const SizedBox(height: 24),
+                Text(
+                  'No password needed. Your Google account keeps you safe.',
+                  textAlign: TextAlign.center,
+                  style: GoogleFonts.manrope(
+                    fontSize: 12.5,
+                    color: const Color(0xFF5B657A),
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
           ),
         ),
@@ -282,9 +194,38 @@ class _AuthScreenState extends ConsumerState<AuthScreen>
 }
 
 // ═══════════════════════════════════════════════════════
-// لوحة الهوية الحيّة (العمود الأيسر)
+// شعار Google
 // ═══════════════════════════════════════════════════════
+class _GoogleLogo extends StatelessWidget {
+  const _GoogleLogo();
 
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 26,
+      height: 26,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(7),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: const Center(
+        child: Text(
+          'G',
+          style: TextStyle(
+            color: Color(0xFF4285F4),
+            fontWeight: FontWeight.w800,
+            fontSize: 17,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════
+// لوحة الهوية (العمود الأيسر)
+// ═══════════════════════════════════════════════════════
 class _BrandPanel extends StatelessWidget {
   const _BrandPanel();
 
@@ -301,7 +242,6 @@ class _BrandPanel extends StatelessWidget {
       ),
       child: Stack(
         children: [
-          // توهّجات خافتة
           Positioned(
             top: -80, left: -60,
             child: _glow(const Color(0xFF10B981), 260),
@@ -310,11 +250,8 @@ class _BrandPanel extends StatelessWidget {
             bottom: -100, right: -80,
             child: _glow(const Color(0xFF22D3EE), 300),
           ),
-          // عناصر طافية حيّة
           const _FloatingShapes(),
-          // شبكة نقاط خافتة
           const Positioned.fill(child: _DotGrid()),
-          // المحتوى
           Padding(
             padding: const EdgeInsets.all(56),
             child: Column(
@@ -417,13 +354,6 @@ class _ValueRow extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// العناصر الطافية (حركة عضوية مستقلة)
-// ═══════════════════════════════════════════════════════
-
-// ⚠️ تنبيه: إذا وجدت تعريفاً آخر لـ _FloatingShapes أعلى في الملف
-// (يبدأ بـ class _FloatingShapes extends StatelessWidget)، احذفه بالكامل
-// واترك هذا التعريف فقط. وجودهما معاً يسبب خطأ duplicate definition.
 class _FloatingShapes extends StatefulWidget {
   const _FloatingShapes();
   @override
@@ -498,11 +428,9 @@ class _FloatingShapesState extends State<_FloatingShapes>
   }
 }
 
-// ═══════════════════════════════════════════════════════
-// شعار للموبايل
-// ═══════════════════════════════════════════════════════
-
 class _MobileLogo extends StatelessWidget {
+  const _MobileLogo();
+
   @override
   Widget build(BuildContext context) {
     return Row(
@@ -525,184 +453,6 @@ class _MobileLogo extends StatelessWidget {
     );
   }
 }
-
-// ═══════════════════════════════════════════════════════
-// الحقل
-// ═══════════════════════════════════════════════════════
-
-class _Field extends StatefulWidget {
-  final TextEditingController controller;
-  final String label;
-  final String hint;
-  final IconData icon;
-  final TextInputType? keyboard;
-  final bool obscure;
-  final VoidCallback? toggleObscure;
-  final String? Function(String?)? validator;
-
-  const _Field({
-    required this.controller,
-    required this.label,
-    required this.hint,
-    required this.icon,
-    this.keyboard,
-    this.obscure = false,
-    this.toggleObscure,
-    this.validator,
-  });
-
-  @override
-  State<_Field> createState() => _FieldState();
-}
-
-class _FieldState extends State<_Field> {
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final border = _focused
-        ? const Color(0xFF34D399)
-        : const Color(0xFF2A3346);
-    return Focus(
-      onFocusChange: (v) => setState(() => _focused = v),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(widget.label,
-              style: GoogleFonts.manrope(
-                  fontSize: 12.5,
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFF9AA4BA),
-                  letterSpacing: 0.3)),
-          const SizedBox(height: 7),
-          AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            decoration: BoxDecoration(
-              color: const Color(0xFF131A2B),
-              borderRadius: BorderRadius.circular(11),
-              border: Border.all(color: border, width: _focused ? 1.6 : 1.2),
-            ),
-            child: TextFormField(
-              controller: widget.controller,
-              keyboardType: widget.keyboard,
-              obscureText: widget.obscure,
-              style: GoogleFonts.manrope(fontSize: 15, color: Colors.white),
-              decoration: InputDecoration(
-                hintText: widget.hint,
-                hintStyle: GoogleFonts.manrope(
-                    fontSize: 15, color: const Color(0xFF4B5568)),
-                prefixIcon: Icon(widget.icon,
-                    size: 19,
-                    color: _focused
-                        ? const Color(0xFF34D399)
-                        : const Color(0xFF5B657A)),
-                suffixIcon: widget.toggleObscure != null
-                    ? IconButton(
-                        icon: Icon(
-                          widget.obscure
-                              ? Icons.visibility_off_rounded
-                              : Icons.visibility_rounded,
-                          size: 19,
-                          color: const Color(0xFF5B657A),
-                        ),
-                        onPressed: widget.toggleObscure,
-                      )
-                    : null,
-                border: InputBorder.none,
-                contentPadding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 15),
-              ),
-              validator: widget.validator,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════
-// زر الإجراء
-// ═══════════════════════════════════════════════════════
-
-class _SubmitButton extends StatefulWidget {
-  final bool loading;
-  final String label;
-  final VoidCallback? onTap;
-  const _SubmitButton({
-    required this.loading,
-    required this.label,
-    required this.onTap,
-  });
-
-  @override
-  State<_SubmitButton> createState() => _SubmitButtonState();
-}
-
-class _SubmitButtonState extends State<_SubmitButton> {
-  bool _hover = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return MouseRegion(
-      onEnter: (_) => setState(() => _hover = true),
-      onExit: (_) => setState(() => _hover = false),
-      child: AnimatedScale(
-        scale: _hover && !widget.loading ? 1.012 : 1.0,
-        duration: const Duration(milliseconds: 140),
-        child: GestureDetector(
-          onTap: widget.onTap,
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 180),
-            height: 54,
-            decoration: BoxDecoration(
-              gradient: widget.loading
-                  ? const LinearGradient(colors: [
-                      Color(0xFF0E7A5B),
-                      Color(0xFF0E7A5B),
-                    ])
-                  : const LinearGradient(colors: [
-                      Color(0xFF10B981),
-                      Color(0xFF22D3EE),
-                    ]),
-              borderRadius: BorderRadius.circular(13),
-              boxShadow: _hover && !widget.loading
-                  ? [
-                      BoxShadow(
-                        color: const Color(0xFF10B981).withOpacity(0.35),
-                        blurRadius: 22,
-                        offset: const Offset(0, 8),
-                      )
-                    ]
-                  : [],
-            ),
-            child: Center(
-              child: widget.loading
-                  ? const SizedBox(
-                      width: 22, height: 22,
-                      child: CircularProgressIndicator(
-                          strokeWidth: 2.4, color: Color(0xFF06281F)),
-                    )
-                  : Text(
-                      widget.label,
-                      style: GoogleFonts.spaceGrotesk(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w700,
-                        color: const Color(0xFF06281F),
-                        letterSpacing: 0.2,
-                      ),
-                    ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════
-// شبكة النقاط الخافتة
-// ══════════════════════════════════════════════════════
 
 class _DotGrid extends StatelessWidget {
   const _DotGrid();

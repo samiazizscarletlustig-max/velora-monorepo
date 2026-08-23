@@ -1,0 +1,36 @@
+name: 🚀 Velora Auto-Scan
+
+on:
+  schedule:
+    # كل 6 ساعات
+    - cron: '0 */6 * * *'
+  workflow_dispatch:  # تشغيل يدوي من GitHub
+  
+jobs:
+  scan-all:
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 📥 Checkout code
+        uses: actions/checkout@v4
+      
+      - name: 🐍 Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      
+      - name: 📦 Install dependencies
+        working-directory: ./scrapers
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+      
+      - name: 🔐 Setup environment
+        working-directory: ./scrapers
+        run: |
+          echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > .env
+          echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> .env
+      
+      - name: 🚀 Run scan
+        working-directory: ./scrapers
+        run: python scan_all.py
