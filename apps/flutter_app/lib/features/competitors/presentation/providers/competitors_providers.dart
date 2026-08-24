@@ -1,32 +1,59 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../data/competitors_repository.dart';
 
 // ═══════════════════════════════════════════
 // Repository Provider
-// ══════════════════════════════════════════
+// ═══════════════════════════════════════════
 
 /// Provider للـ Repository (Singleton)
 final competitorsRepositoryProvider = Provider<CompetitorsRepository>((ref) {
   return CompetitorsRepository();
 });
 
-// ══════════════════════════════════════════
+// ═══════════════════════════════════════════
+// Auth Helper
+// ═══════════════════════════════════════════
+
+/// جلب ID المستخدم الحالي من Supabase Auth
+String? _getCurrentUserId() {
+  return Supabase.instance.client.auth.currentUser?.id;
+}
+
+// ═══════════════════════════════════════════
 // Data Providers
 // ═══════════════════════════════════════════
 
-/// Provider لجلب كل المنافسين
+/// Provider لجلب كل المنافسين (معزل بالمستخدم)
 final competitorsListProvider = FutureProvider<List<Competitor>>((ref) async {
+  final userId = _getCurrentUserId();
+  if (userId == null) {
+    // المستخدم غير مسجل دخول — أعد قائمة فارغة
+    return [];
+  }
+
   final repository = ref.watch(competitorsRepositoryProvider);
-  return repository.getAll();
+  return repository.getAll(userId: userId);
 });
 
-/// Provider لإحصائيات المنافسين
+/// Provider لإحصائيات المنافسين (معزل بالمستخدم)
 final competitorsStatsProvider = FutureProvider<Map<String, int>>((ref) async {
+  final userId = _getCurrentUserId();
+  if (userId == null) {
+    // المستخدم غير مسجل دخول — أعد إحصائيات صفرية
+    return {
+      'total': 0,
+      'products': 0,
+      'scannedThisWeek': 0,
+      'pendingScan': 0,
+    };
+  }
+
   final repository = ref.watch(competitorsRepositoryProvider);
-  return repository.getStats();
+  return repository.getStats(userId: userId);
 });
 
-// ══════════════════════════════════════════
+// ═══════════════════════════════════════════
 // UI State Providers
 // ═══════════════════════════════════════════
 
@@ -59,11 +86,13 @@ final filteredCompetitorsProvider = Provider<List<Competitor>>((ref) {
 final addCompetitorProvider =
     FutureProvider.autoDispose.family<bool, AddCompetitorParams>(
   (ref, params) async {
+    final userId = _getCurrentUserId();
+    if (userId == null) {
+      print('❌ Cannot add competitor: no user logged in');
+      return false;
+    }
+
     final repository = ref.read(competitorsRepositoryProvider);
-    
-    // ✅ تم وضع الـ UID الخاص بك للتجربة على الويب
-    // ⚠️ TODO: قبل النشر، استبدل هذا السطر بجلب الـ ID ديناميكياً من Supabase Auth
-    final userId = "20a37844-b75d-4064-bf86-3bbe3c59e22d"; 
 
     final result = await repository.addCompetitor(
       userId: userId,
@@ -73,6 +102,7 @@ final addCompetitorProvider =
     );
 
     if (result != null) {
+      // تحديث القوائم بعد الإضافة
       ref.invalidate(competitorsListProvider);
       ref.invalidate(competitorsStatsProvider);
       return true;
@@ -84,10 +114,20 @@ final addCompetitorProvider =
 /// Provider لحذف منافس
 final deleteCompetitorProvider =
     FutureProvider.autoDispose.family<bool, String>((ref, id) async {
+  final userId = _getCurrentUserId();
+  if (userId == null) {
+    print('❌ Cannot delete competitor: no user logged in');
+    return false;
+  }
+
   final repository = ref.read(competitorsRepositoryProvider);
-  final result = await repository.deleteCompetitor(id);
+  final result = await repository.deleteCompetitor(
+    id: id,
+    userId: userId,
+  );
 
   if (result) {
+    // تحديث القوائم بعد الحذف
     ref.invalidate(competitorsListProvider);
     ref.invalidate(competitorsStatsProvider);
   }
@@ -96,7 +136,7 @@ final deleteCompetitorProvider =
 
 // ═══════════════════════════════════════════
 // Data Classes
-// ══════════════════════════════════════════
+// ═══════════════════════════════════════════
 
 /// معطيات إضافة منافس جديد
 class AddCompetitorParams {
