@@ -6,6 +6,7 @@ class AIInsight {
   final String title;
   final String summary;
   final String detailedAnalysis;
+  final String aiRecommendation;  // ✅ أضفنا هذه الخاصية
   final String severity;
   final String? competitorName;
   final DateTime createdAt;
@@ -15,6 +16,7 @@ class AIInsight {
     required this.title,
     required this.summary,
     this.detailedAnalysis = '',
+    this.aiRecommendation = '',  // ✅ قيمة افتراضية
     required this.severity,
     this.competitorName,
     required this.createdAt,
@@ -26,6 +28,7 @@ class AIInsight {
       title: map['title'] as String? ?? 'Untitled Insight',
       summary: map['summary'] as String? ?? '',
       detailedAnalysis: map['detailed_analysis'] as String? ?? '',
+      aiRecommendation: map['ai_recommendation'] as String? ?? '',  // ✅ أضفنا هذا
       severity: (map['severity'] as String? ?? 'low').toLowerCase(),
       competitorName: map['competitor_name'] as String?,
       createdAt: DateTime.tryParse(map['created_at'] as String? ?? '') ?? DateTime.now(),
@@ -72,11 +75,9 @@ class InsightsRepository {
   /// جلب كل Insights (مع محاولة جلب اسم المنافس)
   Future<List<AIInsight>> getAll() async {
     try {
-      // محاولة جلب insights مع اسم المنافس (إذا كان العمود موجوداً)
       List<Map<String, dynamic>> response;
       
       try {
-        // المحاولة الأولى: مع join للمنافسين
         response = await _client
             .from('ai_insights')
             .select('*, competitors(name)')
@@ -91,7 +92,6 @@ class InsightsRepository {
           });
         }).toList();
       } catch (e) {
-        // المحاولة الثانية: بدون join (إذا فشل)
         print('⚠️ Join failed, fetching insights without competitor names: $e');
         response = await _client
             .from('ai_insights')
