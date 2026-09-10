@@ -2,7 +2,7 @@
 🚀 Velora — Advanced Multi-Market Scraper & AI Analysis Engine
 ═══════════════════════════════════════════════════════════════
 PRODUCTION VERSION — 100% FREE (Local Ollama AI)
-Generates Enterprise-Grade Strategic Intelligence
+Generates Enterprise-Grade Strategic Intelligence + Trend Analysis
 """
 
 import os, sys, time, json, logging, argparse, re, inspect, asyncio, requests
@@ -23,6 +23,7 @@ from core.platform_detector import detect_platform
 from platforms.shopify_scraper import scrape_shopify
 from platforms.woocommerce_scraper import scrape_woocommerce
 from platforms.generic_scraper import scrape_generic
+from core.trend_analyzer import TrendAnalyzer  # ✅ NEW: Import Trend Analyzer
 
 # ═══════════════════════════════════════════════════════════
 # 🛡️ Rate Limiting (Protects AI APIs)
@@ -57,7 +58,7 @@ logging.basicConfig(
 logger = logging.getLogger('VeloraScraper')
 
 # ═══════════════════════════════════════════════════════════
-#  Color Codes for Terminal
+# 🎨 Color Codes for Terminal
 # ══════════════════════════════════════════════════════════
 class Colors:
     HEADER = '\033[95m'
@@ -72,7 +73,7 @@ class Colors:
 def print_banner():
     print(f"\n{Colors.HEADER}{'='*70}{Colors.ENDC}")
     print(f"{Colors.OKBLUE}🚀 Velora — Advanced Competitive Intelligence{Colors.ENDC}")
-    print(f"{Colors.OKCYAN}   Enterprise-Grade AI Analysis (100% Free - Local Ollama){Colors.ENDC}")
+    print(f"{Colors.OKCYAN}   Enterprise-Grade AI Analysis + Trend Tracking (100% Free){Colors.ENDC}")
     print(f"{Colors.HEADER}{'='*70}{Colors.ENDC}\n")
 
 def print_success(msg): print(f"{Colors.OKGREEN}✅ {msg}{Colors.ENDC}")
@@ -100,7 +101,7 @@ class Config:
         return True
 
 # ═══════════════════════════════════════════════════════════
-#  Database Manager
+# 🗄️ Database Manager
 # ══════════════════════════════════════════════════════════
 class DatabaseManager:
     def __init__(self, supabase: Client):
@@ -158,6 +159,28 @@ class DatabaseManager:
         except Exception as e:
             self.logger.error(f"Failed to save insights: {e}")
             return False
+
+    # ✅ NEW: Save Trend Insights specifically
+    def save_trend_insights(self, insights: List[Dict[str, Any]]) -> bool:
+        try:
+            formatted_insights = []
+            for insight in insights:
+                formatted_insights.append({
+                    "competitor_id": insight.get("competitor_id"),
+                    "type": "trend", # Explicitly mark as trend analysis
+                    "title": insight.get("title", "Trend Analysis"),
+                    "summary": insight.get("summary", ""),
+                    "ai_recommendation": insight.get("recommendation", ""),
+                    "severity": insight.get("severity", "medium").lower(),
+                    "created_at": datetime.now(timezone.utc).isoformat()
+                })
+            if formatted_insights:
+                self.supabase.table("ai_insights").insert(formatted_insights).execute()
+                self.logger.info(f"Saved {len(formatted_insights)} trend insights")
+            return True
+        except Exception as e:
+            self.logger.error(f"Failed to save trend insights: {e}")
+            return False
     
     def update_competitor_scan_time(self, competitor_id: str) -> bool:
         try:
@@ -194,7 +217,6 @@ class InsightGenerator:
         avg_price = sum(prices) / len(prices)
         median_price = sorted(prices)[len(prices)//2]
         
-        # Market segmentation
         budget_threshold = avg_price * 0.6
         premium_threshold = avg_price * 1.5
         
@@ -202,7 +224,6 @@ class InsightGenerator:
         mid_tier = [p for p in prices if budget_threshold <= p <= premium_threshold]
         premium_products = [p for p in prices if p > premium_threshold]
         
-        # Price distribution analysis
         price_ranges = {
             "under_10": len([p for p in prices if p < 10]),
             "10_to_25": len([p for p in prices if 10 <= p < 25]),
@@ -211,7 +232,6 @@ class InsightGenerator:
             "over_100": len([p for p in prices if p >= 100])
         }
         
-        # Top and bottom products
         sorted_products = sorted(self.products, key=lambda x: x.get("current_price", 0), reverse=True)
         
         return {
@@ -259,25 +279,18 @@ class InsightGenerator:
         }
 
     def _generate_observations(self, budget: List, mid: List, premium: List, avg: float) -> List[str]:
-        """Generate strategic observations from data"""
         observations = []
-        
         if len(budget) > len(premium) * 2:
             observations.append(f"Strong focus on budget segment ({len(budget)} products vs {len(premium)} premium)")
-        
         if len(premium) > len(budget):
             observations.append("Premium positioning strategy detected")
-        
         if avg < 20:
             observations.append("Ultra-competitive pricing strategy (avg under $20)")
         elif avg > 100:
             observations.append("Luxury market positioning (avg over $100)")
-        
         return observations
 
     def _build_advanced_prompt(self, data: Dict[str, Any]) -> str:
-        """Build a comprehensive prompt for advanced analysis"""
-        
         return f"""You are a Chief Strategy Officer with 20+ years at McKinsey & BCG, specializing in e-commerce competitive intelligence.
 
 ## COMPETITOR ANALYSIS DATA
@@ -287,86 +300,42 @@ class InsightGenerator:
 Generate exactly 4 BOARD-READY strategic insights that will help our e-commerce business dominate the market.
 
 ## REQUIREMENTS FOR EACH INSIGHT
+### 1. Type: "pricing", "opportunity", "threat", or "portfolio"
+### 2. Title: Executive-level, max 10 words.
+### 3. Summary: 2-3 sentences with HARD DATA (percentages, counts, price points). Use '-' for bullets.
+### 4. AI Recommendation: 4-6 SPECIFIC steps (exact prices, 40-60% margins, 30/60/90 day timelines, inventory levels). Use '-' for bullets.
+### 5. Severity: "critical", "high", "medium", or "low"
 
-### 1. Type (choose one):
-- "pricing" (pricing strategy opportunities)
-- "opportunity" (market gaps to exploit)
-- "threat" (competitive threats to address)
-- "portfolio" (product mix optimization)
-
-### 2. Title
-Executive-level title, maximum 10 words, compelling and specific
-
-### 3. Summary  
-2-3 sentences with HARD DATA including:
-- Exact percentages and numbers from the data
-- Specific product counts
-- Price points and ranges
-- Market share implications
-Use '-' for bullet points if needed
-
-### 4. AI Recommendation
-4-6 SPECIFIC, ACTIONABLE steps including:
-- EXACT price points to charge (e.g., "$12.99", "$47.00")
-- Expected profit margins (40-60% range)
-- Specific timelines (30/60/90 days)
-- Required inventory levels
-- Risk mitigation strategies
-- Marketing angles to use
-Use '-' for bullet points
-
-### 5. Severity
-- "critical" (must act within 30 days)
-- "high" (act within 60 days)
-- "medium" (act within 90 days)
-- "low" (monitor and plan)
-
-## OUTPUT FORMAT
-Return ONLY valid JSON in this exact structure:
-
+## OUTPUT FORMAT (ONLY valid JSON):
 {{
   "insights": [
     {{
       "type": "pricing",
       "title": "Budget Segment Dominance Opportunity",
-      "summary": "- 142 products (57% of catalog) priced below $15\\n- Average budget product: $11.50\\n- Competitor lacks premium offerings above $50",
-      "ai_recommendation": "- Launch entry-level leggings at $12.99 (45% margin, target 500 units/month)\\n- Introduce basic crop top at $9.99 (40% margin)\\n- Timeline: 60-90 days from concept to launch\\n- Risk: Low margins require volume - secure supplier for 1000+ units\\n- Marketing: Position as 'premium quality, unbeatable value'",
+      "summary": "- 142 products (57%) priced below $15\\n- Avg budget product: $11.50",
+      "ai_recommendation": "- Launch entry-level at $12.99 (45% margin)\\n- Timeline: 60-90 days",
       "severity": "high"
     }}
   ]
 }}
-
-## CRITICAL RULES
-- Return ONLY valid JSON - no markdown, no explanations
-- Use real data from the analysis above
-- Be specific with numbers and timelines
-- Focus on actionable competitive advantages
-- Think like a $10M/year e-commerce business owner
 """
 
     def _parse_ai_response(self, text: str) -> List[Dict[str, Any]]:
-        """Parse and validate AI response"""
         try:
-            # Clean markdown formatting if present
             if text.startswith('```'):
                 text = re.sub(r'^```(?:json)?\n', '', text).strip()
                 text = re.sub(r'\n```$', '', text).strip()
             
-            # Remove any leading/trailing whitespace
             text = text.strip()
-            
-            # Parse JSON
             ai_response = json.loads(text)
             insights_data = ai_response.get('insights', [])
             
             if not insights_data:
-                self.logger.warning("⚠️ No insights found in AI response")
                 return self._generate_fallback_insights()
             
-            # Validate and format insights
             insights = []
-            for i, insight in enumerate(insights_data[:4]):  # Max 4 insights
-                validated_insight = {
+            for i, insight in enumerate(insights_data[:4]):
+                insights.append({
                     "competitor_id": self.competitor['id'],
                     "type": insight.get('type', 'general'),
                     "title": insight.get('title', f'Strategic Insight #{i+1}'),
@@ -374,15 +343,13 @@ Return ONLY valid JSON in this exact structure:
                     "ai_recommendation": insight.get('ai_recommendation', '').strip(),
                     "severity": insight.get('severity', 'medium').lower(),
                     "created_at": datetime.now(timezone.utc).isoformat()
-                }
-                insights.append(validated_insight)
+                })
             
             self.logger.info(f"🤖 Generated {len(insights)} ENTERPRISE-GRADE AI insights")
             return insights
             
         except json.JSONDecodeError as e:
             self.logger.error(f"⚠️ JSON parse failed: {e}")
-            self.logger.debug(f"Raw response: {text[:500]}...")
             return self._generate_fallback_insights()
         except Exception as e:
             self.logger.error(f"⚠️ Error parsing response: {e}")
@@ -390,20 +357,15 @@ Return ONLY valid JSON in this exact structure:
 
     @rate_limit(calls_per_minute=6)
     def _generate_advanced_insights(self) -> List[Dict[str, Any]]:
-        """Generate advanced insights using local Ollama"""
         try:
-            # Step 1: Analyze competitor data
             print(f"\n📊 Analyzing {len(self.products)} products from {self.name}...")
             analysis_data = self._analyze_competitor_data()
             
             if "error" in analysis_data:
-                self.logger.warning(f"⚠️ Limited data: {analysis_data['error']}")
                 return self._generate_fallback_insights()
             
-            # Step 2: Build advanced prompt
             prompt = self._build_advanced_prompt(analysis_data)
             
-            # Step 3: Call local Ollama
             print(f"\n🚀 Generating strategic insights with Local AI (llama3.2)...")
             print("⏳ Please wait, this may take a few minutes for deep analysis...")
             
@@ -413,38 +375,29 @@ Return ONLY valid JSON in this exact structure:
                     "model": "llama3.2",
                     "prompt": prompt,
                     "stream": False,
-                    "options": {
-                        "temperature": 0.7,
-                        "top_p": 0.9,
-                        "num_predict": 2048
-                    }
+                    "options": {"temperature": 0.7, "top_p": 0.9, "num_predict": 2048}
                 },
-                timeout=600  # ✅ FIXED: Increased to 10 minutes to prevent timeout on complex analysis
+                timeout=600
             )
             
             if response.status_code != 200:
                 raise Exception(f"Ollama Error {response.status_code}: {response.text}")
             
-            # Step 4: Parse and return insights
-            text = response.json()["response"]
-            return self._parse_ai_response(text)
+            return self._parse_ai_response(response.json()["response"])
             
         except requests.exceptions.ConnectionError:
-            self.logger.error("❌ Cannot connect to Ollama. Is it running?")
-            self.logger.error("   Start Ollama with: ollama serve")
+            self.logger.error("❌ Cannot connect to Ollama. Start with: ollama serve")
             return self._generate_fallback_insights()
         except requests.exceptions.Timeout:
-            self.logger.error("❌ Ollama request timed out after 10 minutes. Try using a lighter model like 'phi3'")
+            self.logger.error("❌ Ollama request timed out. Try lighter model like 'phi3'")
             return self._generate_fallback_insights()
         except Exception as e:
             self.logger.error(f"❌ AI generation failed: {e}")
             return self._generate_fallback_insights()
 
     def _generate_fallback_insights(self) -> List[Dict[str, Any]]:
-        """Generate basic insights when AI fails"""
         timestamp = datetime.now(timezone.utc).isoformat()
         prices = [p.get("current_price") for p in self.products if p.get("current_price")]
-        
         insights = []
         
         if prices:
@@ -453,23 +406,13 @@ Return ONLY valid JSON in this exact structure:
                 "competitor_id": self.competitor['id'],
                 "type": "pricing",
                 "title": f"{self.name} — Pricing Analysis",
-                "summary": f"Average price: ${avg_price:.2f} across {len(prices)} products. Range: ${min(prices):.2f} - ${max(prices):.2f}",
-                "ai_recommendation": "Position core products within 10% of competitor average. Focus on value-added features to justify premium pricing.",
+                "summary": f"Average price: ${avg_price:.2f} across {len(prices)} products.",
+                "ai_recommendation": "Position core products within 10% of competitor average.",
                 "severity": "medium",
                 "created_at": timestamp
             })
         
-        insights.append({
-            "competitor_id": self.competitor['id'],
-            "type": "catalog",
-            "title": f"{self.name} — Catalog Intelligence",
-            "summary": f"Total catalog: {len(self.products)} products. Monitor for new additions weekly.",
-            "ai_recommendation": "Set up alerts for new product launches. Analyze seasonal patterns and trending categories.",
-            "severity": "low",
-            "created_at": timestamp
-        })
-        
-        self.logger.info(f"⚠️ Generated {len(insights)} fallback insights (AI unavailable)")
+        self.logger.info(f"⚠️ Generated {len(insights)} fallback insights")
         return insights
 
 # ═══════════════════════════════════════════════════════════
@@ -506,7 +449,7 @@ class ScraperEngine:
             except Exception as e:
                 self.logger.error(f"Scraper failed (attempt {attempt + 1}): {e}")
                 if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)  # Exponential backoff
+                    time.sleep(2 ** attempt)
         
         print_error(f"Failed to scrape after {max_retries} attempts")
         return []
@@ -576,9 +519,22 @@ class VeloraScraper:
             # Step 3: Generate AI insights
             insight_gen = InsightGenerator(competitor, products)
             insights = insight_gen.generate_all_insights()
-            
             if insights:
                 self.db.save_insights(insights)
+            
+            # ✅ Step 3.5: NEW - Analyze and Save Price Trends
+            try:
+                print(f"\n📈 Analyzing price trends for {competitor_name}...")
+                trend_analyzer = TrendAnalyzer(competitor_id, products)
+                trend_data = trend_analyzer.analyze_price_trends()
+                
+                if "error" not in trend_data and trend_data.get("insights"):
+                    self.db.save_trend_insights(trend_data["insights"])
+                    print_success(f"Saved {len(trend_data['insights'])} trend insights")
+                else:
+                    print_warning("Not enough historical data for trend analysis yet (will build up over time).")
+            except Exception as e:
+                self.logger.error(f"Trend analysis failed: {e}")
             
             # Step 4: Update timestamp
             self.db.update_competitor_scan_time(competitor_id)
@@ -615,7 +571,7 @@ class VeloraScraper:
                 self.scan_competitor(comp, url)
             
             if i < len(pending):
-                time.sleep(2)  # Rate limiting
+                time.sleep(2)
     
     def run(self, url: str = None, continuous: bool = False, force_all: bool = False):
         if not self.initialize():
@@ -624,7 +580,6 @@ class VeloraScraper:
         if continuous:
             print_info(f"⏳ Continuous mode: checking every {self.config.scan_interval}s")
             first_run = True
-            
             try:
                 while True:
                     self.run_dynamic_mode(force_all=(first_run and force_all))
@@ -632,15 +587,12 @@ class VeloraScraper:
                     time.sleep(self.config.scan_interval)
             except KeyboardInterrupt:
                 print_info("\n👋 Continuous mode stopped by user")
-        
         elif url:
             comp = self.db.get_or_create_competitor(url)
             if comp:
                 self.scan_competitor(comp, url)
-        
         elif force_all:
             self.run_dynamic_mode(force_all=True)
-        
         else:
             self.run_dynamic_mode(force_all=False)
 

@@ -5,8 +5,9 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
-// ✅ تم تفعيل الاستيراد الآن لربط الشاشتين
+// ✅ استيراد شاشات التحليل (تم تصحيح المسار هنا)
 import 'competitor_analysis_screen.dart';
+import '../../../insights/presentation/screens/trend_analysis_screen.dart'; // ✅ FIXED PATH
 
 import '../../../../core/config/app_colors.dart';
 import '../../../../core/widgets/premium_widgets.dart';
@@ -34,7 +35,6 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
   void initState() {
     super.initState();
     
-    // ✅ Auto-refresh data every 30 seconds to catch new AI insights
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
       if (mounted) {
         ref.invalidate(competitorsListProvider);
@@ -153,6 +153,7 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
               onDelete: (c) => _handleDelete(context, c),
               onTap: (c) => _navigateToDetails(context, c),
               onScan: (c) => _handleQuickScan(context, c),
+              onViewTrends: (c) => _navigateToTrends(context, c),
             ),
           ),
       ],
@@ -215,7 +216,6 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
       message: '🚀 AI Scan triggered for ${c.name}! Fetching data...',
     );
     
-    // ✅ Simulate scan trigger and refresh after a short delay
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
         ref.invalidate(competitorsListProvider);
@@ -407,12 +407,24 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
         false;
   }
 
-  // ✅ تم تفعيل التنقل إلى شاشة التحليلات الآن
   void _navigateToDetails(BuildContext context, Competitor c) {
     Navigator.push(
       context,
       MaterialPageRoute(
         builder: (context) => CompetitorAnalysisScreen(
+          competitorId: c.id,
+          competitorName: c.name,
+        ),
+      ),
+    );
+  }
+
+  // ✅ NEW: Navigate to Trend Analysis Screen
+  void _navigateToTrends(BuildContext context, Competitor c) {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => TrendAnalysisScreen(
           competitorId: c.id,
           competitorName: c.name,
         ),
@@ -1021,12 +1033,14 @@ class _CompetitorsList extends StatelessWidget {
   final void Function(Competitor) onDelete;
   final void Function(Competitor) onTap;
   final void Function(Competitor) onScan;
+  final void Function(Competitor) onViewTrends;
 
   const _CompetitorsList({
     required this.competitors,
     required this.onDelete,
     required this.onTap,
     required this.onScan,
+    required this.onViewTrends,
   });
 
   @override
@@ -1041,6 +1055,7 @@ class _CompetitorsList extends StatelessWidget {
               onDelete: () => onDelete(competitors[index]),
               onTap: () => onTap(competitors[index]),
               onScan: () => onScan(competitors[index]),
+              onViewTrends: () => onViewTrends(competitors[index]),
             ).animate().fadeIn(
                   duration: 500.ms,
                   delay: Duration(milliseconds: 60 * index),
@@ -1066,12 +1081,14 @@ class _PremiumCompetitorCard extends StatefulWidget {
   final VoidCallback onDelete;
   final VoidCallback onTap;
   final VoidCallback onScan;
+  final VoidCallback onViewTrends;
 
   const _PremiumCompetitorCard({
     required this.competitor,
     required this.onDelete,
     required this.onTap,
     required this.onScan,
+    required this.onViewTrends,
   });
 
   @override
@@ -1181,8 +1198,9 @@ class _PremiumCompetitorCardState extends State<_PremiumCompetitorCard> {
                       ? _HoverActions(
                           key: const ValueKey('actions'),
                           onScan: widget.onScan,
-                          onDelete: widget.onDelete,
                           onView: widget.onTap,
+                          onViewTrends: widget.onViewTrends,
+                          onDelete: widget.onDelete,
                         )
                       : const SizedBox.shrink(key: ValueKey('empty')),
                 ),
@@ -1245,7 +1263,6 @@ class _LastScanStat extends StatelessWidget {
                 fontWeight: FontWeight.w500,
                 letterSpacing: 0.3,
               )),
-          // ✅ DYNAMIC TIME FORMATTING using timeago package
           Text(
             competitor.lastScanAt != null 
                 ? timeago.format(competitor.lastScanAt!) 
@@ -1301,17 +1318,19 @@ class _RingPainter extends CustomPainter {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ⚡ HOVER ACTIONS (Scan, View, Delete)
+// ⚡ HOVER ACTIONS (Scan, View, Trends, Delete)
 // ═══════════════════════════════════════════════════════════
 class _HoverActions extends StatelessWidget {
   final VoidCallback onScan;
   final VoidCallback onView;
+  final VoidCallback onViewTrends;
   final VoidCallback onDelete;
 
   const _HoverActions({
     super.key,
     required this.onScan,
     required this.onView,
+    required this.onViewTrends,
     required this.onDelete,
   });
 
@@ -1330,6 +1349,13 @@ class _HoverActions extends StatelessWidget {
         tooltip: 'View AI Insights',
         color: AppColors.info,
         onTap: onView,
+      ),
+      const SizedBox(width: 8),
+      _ActionButton(
+        icon: Icons.show_chart_rounded,
+        tooltip: 'View Price Trends',
+        color: AppColors.warning,
+        onTap: onViewTrends,
       ),
       const SizedBox(width: 8),
       _ActionButton(
