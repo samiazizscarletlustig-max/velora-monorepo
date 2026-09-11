@@ -1,7 +1,7 @@
 """
 🚀 Velora — Advanced Multi-Market Scraper & AI Analysis Engine
 ═══════════════════════════════════════════════════════════════
-PRODUCTION VERSION — 100% FREE (Local Ollama AI)
+PRODUCTION VERSION — Perfectly Tuned for Groq Free Tier
 Generates Enterprise-Grade Strategic Intelligence + Trend Analysis
 """
 
@@ -23,10 +23,40 @@ from core.platform_detector import detect_platform
 from platforms.shopify_scraper import scrape_shopify
 from platforms.woocommerce_scraper import scrape_woocommerce
 from platforms.generic_scraper import scrape_generic
-from core.trend_analyzer import TrendAnalyzer  # ✅ NEW: Import Trend Analyzer
+from core.trend_analyzer import TrendAnalyzer
 
 # ═══════════════════════════════════════════════════════════
-# 🛡️ Rate Limiting (Protects AI APIs)
+# 🧠 SMART MODEL DETECTOR
+# ═══════════════════════════════════════════════════════════
+def get_best_available_groq_model(api_key: str) -> str:
+    try:
+        response = requests.get(
+            "https://api.groq.com/openai/v1/models",
+            headers={"Authorization": f"Bearer {api_key}"}
+        )
+        if response.status_code == 200:
+            models = response.json().get("data", [])
+            model_ids = [m["id"] for m in models]
+            
+            for preferred in ["openai/gpt-oss-20b", "qwen/qwen2.5-32b", "qwen/qwen3.6-27b"]:
+                for m in model_ids:
+                    if preferred in m:
+                        return m
+            
+            for m in model_ids:
+                if "qwen" in m.lower() or "llama-3" in m.lower():
+                    return m
+                    
+            if model_ids:
+                return model_ids[0]
+                
+    except Exception as e:
+        logging.getLogger('VeloraScraper').warning(f"Could not fetch models: {e}")
+    
+    return "openai/gpt-oss-20b"
+
+# ═══════════════════════════════════════════════════════════
+# 🛡️ Rate Limiting
 # ═════════════════════════════════════════════════════════
 def rate_limit(calls_per_minute: int = 6):
     def decorator(func):
@@ -58,7 +88,7 @@ logging.basicConfig(
 logger = logging.getLogger('VeloraScraper')
 
 # ═══════════════════════════════════════════════════════════
-# 🎨 Color Codes for Terminal
+# 🎨 Color Codes
 # ══════════════════════════════════════════════════════════
 class Colors:
     HEADER = '\033[95m'
@@ -73,7 +103,7 @@ class Colors:
 def print_banner():
     print(f"\n{Colors.HEADER}{'='*70}{Colors.ENDC}")
     print(f"{Colors.OKBLUE}🚀 Velora — Advanced Competitive Intelligence{Colors.ENDC}")
-    print(f"{Colors.OKCYAN}   Enterprise-Grade AI Analysis + Trend Tracking (100% Free){Colors.ENDC}")
+    print(f"{Colors.OKCYAN}   Perfectly Tuned for Groq Free Tier{Colors.ENDC}")
     print(f"{Colors.HEADER}{'='*70}{Colors.ENDC}\n")
 
 def print_success(msg): print(f"{Colors.OKGREEN}✅ {msg}{Colors.ENDC}")
@@ -89,6 +119,7 @@ class Config:
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
         self.use_local_ollama = os.getenv("USE_LOCAL_OLLAMA", "false").lower() == "true"
+        self.groq_api_key = os.getenv("GROQ_API_KEY")
         self.scan_interval = int(os.getenv("SCAN_INTERVAL", "600"))
         self.max_retries = int(os.getenv("MAX_RETRIES", "3"))
         
@@ -96,8 +127,9 @@ class Config:
         if not self.supabase_url or not self.supabase_key:
             print_error("Missing Supabase credentials in .env")
             return False
-        if not self.use_local_ollama:
-            print_warning("Add 'USE_LOCAL_OLLAMA=true' to .env for free AI")
+        if not self.use_local_ollama and not self.groq_api_key:
+            print_error("Missing GROQ_API_KEY in .env.")
+            return False
         return True
 
 # ═══════════════════════════════════════════════════════════
@@ -129,7 +161,7 @@ class DatabaseManager:
             
             store_name = urlparse(url).netloc.replace('www.', '').split('.')[0].capitalize()
             users = self.supabase.table("users").select("id").limit(1).execute()
-            if not users.data: print_error("No users found. Please sign up first."); return None
+            if not users.data: print_error("No users found."); return None
             
             response = self.supabase.table("competitors").insert({
                 'name': store_name, 'website': url, 'user_id': users.data[0]['id'],
@@ -160,14 +192,13 @@ class DatabaseManager:
             self.logger.error(f"Failed to save insights: {e}")
             return False
 
-    # ✅ NEW: Save Trend Insights specifically
     def save_trend_insights(self, insights: List[Dict[str, Any]]) -> bool:
         try:
             formatted_insights = []
             for insight in insights:
                 formatted_insights.append({
                     "competitor_id": insight.get("competitor_id"),
-                    "type": "trend", # Explicitly mark as trend analysis
+                    "type": "trend",
                     "title": insight.get("title", "Trend Analysis"),
                     "summary": insight.get("summary", ""),
                     "ai_recommendation": insight.get("recommendation", ""),
@@ -194,7 +225,7 @@ class DatabaseManager:
             return False
 
 # ══════════════════════════════════════════════════════════
-# 🤖 ADVANCED AI INSIGHT GENERATOR (Ollama Local)
+# 🤖 ADVANCED AI INSIGHT GENERATOR (Perfectly Tuned)
 # ══════════════════════════════════════════════════════════
 class InsightGenerator:
     def __init__(self, competitor: Dict[str, Any], products: List[Dict[str, Any]]):
@@ -202,21 +233,18 @@ class InsightGenerator:
         self.products = products
         self.name = competitor.get('name', 'Unknown')
         self.logger = logging.getLogger('InsightGenerator')
+        self.groq_api_key = os.getenv("GROQ_API_KEY")
+        self.active_model = get_best_available_groq_model(self.groq_api_key) if self.groq_api_key else "openai/gpt-oss-20b"
     
     def generate_all_insights(self) -> List[Dict[str, Any]]:
-        """Main entry point - generates advanced strategic insights"""
         return self._generate_advanced_insights()
 
     def _analyze_competitor_data(self) -> Dict[str, Any]:
-        """Advanced data analysis with market segmentation"""
         prices = [p.get("current_price", 0) for p in self.products if p.get("current_price")]
-        
         if not prices:
             return {"error": "No pricing data available"}
         
         avg_price = sum(prices) / len(prices)
-        median_price = sorted(prices)[len(prices)//2]
-        
         budget_threshold = avg_price * 0.6
         premium_threshold = avg_price * 1.5
         
@@ -224,97 +252,41 @@ class InsightGenerator:
         mid_tier = [p for p in prices if budget_threshold <= p <= premium_threshold]
         premium_products = [p for p in prices if p > premium_threshold]
         
-        price_ranges = {
-            "under_10": len([p for p in prices if p < 10]),
-            "10_to_25": len([p for p in prices if 10 <= p < 25]),
-            "25_to_50": len([p for p in prices if 25 <= p < 50]),
-            "50_to_100": len([p for p in prices if 50 <= p < 100]),
-            "over_100": len([p for p in prices if p >= 100])
-        }
-        
         sorted_products = sorted(self.products, key=lambda x: x.get("current_price", 0), reverse=True)
         
         return {
             "competitor_name": self.name,
-            "analysis_date": datetime.now().strftime("%Y-%m-%d"),
-            "total_products_scanned": len(self.products),
+            "total_products": len(self.products),
             "products_with_pricing": len(prices),
-            "pricing_statistics": {
-                "average_price": round(avg_price, 2),
-                "median_price": round(median_price, 2),
-                "lowest_price": round(min(prices), 2),
-                "highest_price": round(max(prices), 2),
-                "price_spread": round(max(prices) - min(prices), 2)
-            },
-            "market_segmentation": {
-                "budget": {
-                    "count": len(budget_products),
-                    "percentage": round(len(budget_products)/len(prices)*100, 1),
-                    "avg_price": round(sum(budget_products)/len(budget_products), 2) if budget_products else 0,
-                    "threshold": f"Below ${round(budget_threshold, 2)}"
-                },
-                "mid_tier": {
-                    "count": len(mid_tier),
-                    "percentage": round(len(mid_tier)/len(prices)*100, 1),
-                    "avg_price": round(sum(mid_tier)/len(mid_tier), 2) if mid_tier else 0,
-                    "range": f"${round(budget_threshold, 2)} - ${round(premium_threshold, 2)}"
-                },
-                "premium": {
-                    "count": len(premium_products),
-                    "percentage": round(len(premium_products)/len(prices)*100, 1),
-                    "avg_price": round(sum(premium_products)/len(premium_products), 2) if premium_products else 0,
-                    "threshold": f"Above ${round(premium_threshold, 2)}"
-                }
-            },
-            "price_distribution": price_ranges,
-            "top_10_most_expensive": [
-                {"title": p.get("title", "")[:80], "price": round(p.get("current_price", 0), 2)}
-                for p in sorted_products[:10]
-            ],
-            "top_10_least_expensive": [
-                {"title": p.get("title", "")[:80], "price": round(p.get("current_price", 0), 2)}
-                for p in sorted_products[-10:]
-            ],
-            "strategic_observations": self._generate_observations(budget_products, mid_tier, premium_products, avg_price)
+            "avg_price": round(avg_price, 2),
+            "min_price": round(min(prices), 2),
+            "max_price": round(max(prices), 2),
+            "budget_count": len(budget_products),
+            "mid_tier_count": len(mid_tier),
+            "premium_count": len(premium_products),
+            "top_3_expensive": [{"title": p.get("title", "")[:40], "price": round(p.get("current_price", 0), 2)} for p in sorted_products[:3]]
         }
 
-    def _generate_observations(self, budget: List, mid: List, premium: List, avg: float) -> List[str]:
-        observations = []
-        if len(budget) > len(premium) * 2:
-            observations.append(f"Strong focus on budget segment ({len(budget)} products vs {len(premium)} premium)")
-        if len(premium) > len(budget):
-            observations.append("Premium positioning strategy detected")
-        if avg < 20:
-            observations.append("Ultra-competitive pricing strategy (avg under $20)")
-        elif avg > 100:
-            observations.append("Luxury market positioning (avg over $100)")
-        return observations
-
     def _build_advanced_prompt(self, data: Dict[str, Any]) -> str:
-        return f"""You are a Chief Strategy Officer with 20+ years at McKinsey & BCG, specializing in e-commerce competitive intelligence.
+        # ✅ تم تشديد قيود الطول بشكل أقصى لضمان عدم تجاوز 800 Token
+        return f"""Analyze this e-commerce data and output exactly 2 short strategic insights as valid JSON.
 
-## COMPETITOR ANALYSIS DATA
-{json.dumps(data, indent=2)}
+DATA: {json.dumps(data, indent=2)}
 
-## YOUR TASK
-Generate exactly 4 BOARD-READY strategic insights that will help our e-commerce business dominate the market.
+RULES:
+- Output ONLY valid JSON. No markdown, no text outside the JSON.
+- STRICT LENGTH LIMIT: Max 15 words for 'summary' and Max 15 words for 'ai_recommendation'. BE EXTREMELY CONCISE.
+- Include exact numbers from the data.
 
-## REQUIREMENTS FOR EACH INSIGHT
-### 1. Type: "pricing", "opportunity", "threat", or "portfolio"
-### 2. Title: Executive-level, max 10 words.
-### 3. Summary: 2-3 sentences with HARD DATA (percentages, counts, price points). Use '-' for bullets.
-### 4. AI Recommendation: 4-6 SPECIFIC steps (exact prices, 40-60% margins, 30/60/90 day timelines, inventory levels). Use '-' for bullets.
-### 5. Severity: "critical", "high", "medium", or "low"
-
-## OUTPUT FORMAT (ONLY valid JSON):
+JSON FORMAT:
 {{
   "insights": [
     {{
       "type": "pricing",
-      "title": "Budget Segment Dominance Opportunity",
-      "summary": "- 142 products (57%) priced below $15\\n- Avg budget product: $11.50",
-      "ai_recommendation": "- Launch entry-level at $12.99 (45% margin)\\n- Timeline: 60-90 days",
-      "severity": "high"
+      "title": "Short Title",
+      "summary": "Max 15 words with hard data.",
+      "ai_recommendation": "Max 15 words actionable step.",
+      "severity": "medium"
     }}
   ]
 }}
@@ -322,6 +294,9 @@ Generate exactly 4 BOARD-READY strategic insights that will help our e-commerce 
 
     def _parse_ai_response(self, text: str) -> List[Dict[str, Any]]:
         try:
+            if not text or not text.strip():
+                raise ValueError("AI returned an empty response")
+                
             if text.startswith('```'):
                 text = re.sub(r'^```(?:json)?\n', '', text).strip()
                 text = re.sub(r'\n```$', '', text).strip()
@@ -334,11 +309,11 @@ Generate exactly 4 BOARD-READY strategic insights that will help our e-commerce 
                 return self._generate_fallback_insights()
             
             insights = []
-            for i, insight in enumerate(insights_data[:4]):
+            for i, insight in enumerate(insights_data[:2]):
                 insights.append({
                     "competitor_id": self.competitor['id'],
                     "type": insight.get('type', 'general'),
-                    "title": insight.get('title', f'Strategic Insight #{i+1}'),
+                    "title": insight.get('title', f'Insight #{i+1}'),
                     "summary": insight.get('summary', '').strip(),
                     "ai_recommendation": insight.get('ai_recommendation', '').strip(),
                     "severity": insight.get('severity', 'medium').lower(),
@@ -350,6 +325,7 @@ Generate exactly 4 BOARD-READY strategic insights that will help our e-commerce 
             
         except json.JSONDecodeError as e:
             self.logger.error(f"⚠️ JSON parse failed: {e}")
+            self.logger.error(f"🔍 Raw AI Response: '{text[:300]}...'")
             return self._generate_fallback_insights()
         except Exception as e:
             self.logger.error(f"⚠️ Error parsing response: {e}")
@@ -366,30 +342,40 @@ Generate exactly 4 BOARD-READY strategic insights that will help our e-commerce 
             
             prompt = self._build_advanced_prompt(analysis_data)
             
-            print(f"\n🚀 Generating strategic insights with Local AI (llama3.2)...")
-            print("⏳ Please wait, this may take a few minutes for deep analysis...")
+            if not self.groq_api_key:
+                self.logger.error("❌ GROQ_API_KEY not found")
+                return self._generate_fallback_insights()
+            
+            print(f"\n🚀 Generating insights with Groq (Model: {self.active_model})...")
             
             response = requests.post(
-                "http://localhost:11434/api/generate",
-                json={
-                    "model": "llama3.2",
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": {"temperature": 0.7, "top_p": 0.9, "num_predict": 2048}
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self.groq_api_key}",
+                    "Content-Type": "application/json"
                 },
-                timeout=600
+                json={
+                    "model": self.active_model,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3,
+                    "max_tokens": 800  # ✅ الرقم المثالي: أقل من حد 1000، وكافٍ لإنهاء JSON
+                },
+                timeout=30
             )
             
             if response.status_code != 200:
-                raise Exception(f"Ollama Error {response.status_code}: {response.text}")
+                raise Exception(f"Groq API Error {response.status_code}: {response.text}")
             
-            return self._parse_ai_response(response.json()["response"])
+            groq_response = response.json()
+            text = groq_response["choices"][0]["message"]["content"]
+            
+            return self._parse_ai_response(text)
             
         except requests.exceptions.ConnectionError:
-            self.logger.error("❌ Cannot connect to Ollama. Start with: ollama serve")
+            self.logger.error("❌ Cannot connect to Groq API.")
             return self._generate_fallback_insights()
         except requests.exceptions.Timeout:
-            self.logger.error("❌ Ollama request timed out. Try lighter model like 'phi3'")
+            self.logger.error("❌ Groq API request timed out.")
             return self._generate_fallback_insights()
         except Exception as e:
             self.logger.error(f"❌ AI generation failed: {e}")
@@ -499,13 +485,11 @@ class VeloraScraper:
         print(f"{'='*60}\n")
         
         try:
-            # Step 1: Scrape products
             products = self.scraper.scrape(url)
             if not products:
                 print_warning(f"No products found for {competitor_name}")
                 return False
             
-            # Step 2: Save to database
             timestamp = datetime.now(timezone.utc).isoformat()
             cleaned_products = [
                 self.scraper.clean_product_data(p, competitor_id, timestamp)
@@ -516,13 +500,11 @@ class VeloraScraper:
                 print_error("Failed to save products")
                 return False
             
-            # Step 3: Generate AI insights
             insight_gen = InsightGenerator(competitor, products)
             insights = insight_gen.generate_all_insights()
             if insights:
                 self.db.save_insights(insights)
             
-            # ✅ Step 3.5: NEW - Analyze and Save Price Trends
             try:
                 print(f"\n📈 Analyzing price trends for {competitor_name}...")
                 trend_analyzer = TrendAnalyzer(competitor_id, products)
@@ -532,14 +514,12 @@ class VeloraScraper:
                     self.db.save_trend_insights(trend_data["insights"])
                     print_success(f"Saved {len(trend_data['insights'])} trend insights")
                 else:
-                    print_warning("Not enough historical data for trend analysis yet (will build up over time).")
+                    print_warning("Not enough historical data for trend analysis yet.")
             except Exception as e:
                 self.logger.error(f"Trend analysis failed: {e}")
             
-            # Step 4: Update timestamp
             self.db.update_competitor_scan_time(competitor_id)
             
-            # Step 5: Report results
             print_success(f"✅ Completed scan for {competitor_name}")
             print(f"   • Products: {len(cleaned_products)}")
             print(f"   • AI Insights: {len(insights)}")
@@ -553,7 +533,6 @@ class VeloraScraper:
     
     def run_dynamic_mode(self, force_all: bool = False):
         print_info("🔄 Running in DYNAMIC MODE")
-        
         pending = self.db.get_pending_competitors(force_all=force_all)
         
         if not pending:
@@ -566,10 +545,8 @@ class VeloraScraper:
         for i, comp in enumerate(pending, 1):
             print(f"\n[{i}/{len(pending)}]")
             url = comp.get('website') or comp.get('shopify_store')
-            
             if url:
                 self.scan_competitor(comp, url)
-            
             if i < len(pending):
                 time.sleep(2)
     
