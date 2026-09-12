@@ -1,8 +1,8 @@
 """
-🚀 Velora — Advanced Multi-Market Scraper & AI Analysis Engine
+🚀 Velora — Advanced Competitive Market Intelligence Engine
 ═══════════════════════════════════════════════════════════════
-PRODUCTION VERSION — Perfectly Tuned for Groq Free Tier
-Generates Enterprise-Grade Strategic Intelligence + Trend Analysis
+PRODUCTION VERSION — Cloud-Powered (Hugging Face)
+Fast, Reliable, and Ready for GitHub Actions
 """
 
 import os, sys, time, json, logging, argparse, re, inspect, asyncio, requests
@@ -26,39 +26,9 @@ from platforms.generic_scraper import scrape_generic
 from core.trend_analyzer import TrendAnalyzer
 
 # ═══════════════════════════════════════════════════════════
-# 🧠 SMART MODEL DETECTOR
-# ═══════════════════════════════════════════════════════════
-def get_best_available_groq_model(api_key: str) -> str:
-    try:
-        response = requests.get(
-            "https://api.groq.com/openai/v1/models",
-            headers={"Authorization": f"Bearer {api_key}"}
-        )
-        if response.status_code == 200:
-            models = response.json().get("data", [])
-            model_ids = [m["id"] for m in models]
-            
-            for preferred in ["openai/gpt-oss-20b", "qwen/qwen2.5-32b", "qwen/qwen3.6-27b"]:
-                for m in model_ids:
-                    if preferred in m:
-                        return m
-            
-            for m in model_ids:
-                if "qwen" in m.lower() or "llama-3" in m.lower():
-                    return m
-                    
-            if model_ids:
-                return model_ids[0]
-                
-    except Exception as e:
-        logging.getLogger('VeloraScraper').warning(f"Could not fetch models: {e}")
-    
-    return "openai/gpt-oss-20b"
-
-# ═══════════════════════════════════════════════════════════
-# 🛡️ Rate Limiting
+# 🛡️ Rate Limiting (Protects API Limits)
 # ═════════════════════════════════════════════════════════
-def rate_limit(calls_per_minute: int = 6):
+def rate_limit(calls_per_minute: int = 10):
     def decorator(func):
         last_called = [0]
         min_interval = 60 / calls_per_minute
@@ -75,7 +45,7 @@ def rate_limit(calls_per_minute: int = 6):
 
 # ═══════════════════════════════════════════════════════════
 # 📝 Logging Configuration
-# ══════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -101,15 +71,16 @@ class Colors:
     BOLD = '\033[1m'
 
 def print_banner():
-    print(f"\n{Colors.HEADER}{'='*70}{Colors.ENDC}")
-    print(f"{Colors.OKBLUE}🚀 Velora — Advanced Competitive Intelligence{Colors.ENDC}")
-    print(f"{Colors.OKCYAN}   Perfectly Tuned for Groq Free Tier{Colors.ENDC}")
-    print(f"{Colors.HEADER}{'='*70}{Colors.ENDC}\n")
+    print(f"\n{Colors.HEADER}{'═'*80}{Colors.ENDC}")
+    print(f"{Colors.OKBLUE} Velora — Competitive Market Intelligence Engine{Colors.ENDC}")
+    print(f"{Colors.OKCYAN}   Cloud-Powered by Hugging Face (Fast & Reliable){Colors.ENDC}")
+    print(f"{Colors.HEADER}{'═'*80}{Colors.ENDC}\n")
 
 def print_success(msg): print(f"{Colors.OKGREEN}✅ {msg}{Colors.ENDC}")
 def print_error(msg): print(f"{Colors.FAIL}❌ {msg}{Colors.ENDC}")
 def print_warning(msg): print(f"{Colors.WARNING}⚠️  {msg}{Colors.ENDC}")
 def print_info(msg): print(f"{Colors.OKBLUE}ℹ️  {msg}{Colors.ENDC}")
+def print_header(msg): print(f"\n{Colors.BOLD}{Colors.OKCYAN}{msg}{Colors.ENDC}")
 
 # ═══════════════════════════════════════════════════════════
 # 🔧 Configuration
@@ -118,8 +89,7 @@ class Config:
     def __init__(self):
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        self.use_local_ollama = os.getenv("USE_LOCAL_OLLAMA", "false").lower() == "true"
-        self.groq_api_key = os.getenv("GROQ_API_KEY")
+        self.hf_api_key = os.getenv("HF_API_KEY")
         self.scan_interval = int(os.getenv("SCAN_INTERVAL", "600"))
         self.max_retries = int(os.getenv("MAX_RETRIES", "3"))
         
@@ -127,9 +97,10 @@ class Config:
         if not self.supabase_url or not self.supabase_key:
             print_error("Missing Supabase credentials in .env")
             return False
-        if not self.use_local_ollama and not self.groq_api_key:
-            print_error("Missing GROQ_API_KEY in .env.")
+        if not self.hf_api_key:
+            print_error("Missing HF_API_KEY in .env")
             return False
+        print_info("☁️ Using Hugging Face Cloud API for Fast Analysis")
         return True
 
 # ═══════════════════════════════════════════════════════════
@@ -224,18 +195,17 @@ class DatabaseManager:
             self.logger.error(f"Failed to update timestamp: {e}")
             return False
 
-# ══════════════════════════════════════════════════════════
-# 🤖 ADVANCED AI INSIGHT GENERATOR (Perfectly Tuned)
-# ══════════════════════════════════════════════════════════
-class InsightGenerator:
+# ═══════════════════════════════════════════════════════════
+# 🧠 ELITE MARKET INTELLIGENCE ENGINE (Cloud-Powered)
+# ═══════════════════════════════════════════════════════════
+class MarketIntelligenceEngine:
     def __init__(self, competitor: Dict[str, Any], products: List[Dict[str, Any]]):
         self.competitor = competitor
         self.products = products
         self.name = competitor.get('name', 'Unknown')
-        self.logger = logging.getLogger('InsightGenerator')
-        self.groq_api_key = os.getenv("GROQ_API_KEY")
-        self.active_model = get_best_available_groq_model(self.groq_api_key) if self.groq_api_key else "openai/gpt-oss-20b"
-    
+        self.logger = logging.getLogger('MarketIntelligence')
+        self.hf_api_key = os.getenv("HF_API_KEY")
+
     def generate_all_insights(self) -> List[Dict[str, Any]]:
         return self._generate_advanced_insights()
 
@@ -245,6 +215,8 @@ class InsightGenerator:
             return {"error": "No pricing data available"}
         
         avg_price = sum(prices) / len(prices)
+        median_price = sorted(prices)[len(prices)//2]
+        
         budget_threshold = avg_price * 0.6
         premium_threshold = avg_price * 1.5
         
@@ -256,50 +228,83 @@ class InsightGenerator:
         
         return {
             "competitor_name": self.name,
-            "total_products": len(self.products),
+            "total_products_scanned": len(self.products),
             "products_with_pricing": len(prices),
-            "avg_price": round(avg_price, 2),
-            "min_price": round(min(prices), 2),
-            "max_price": round(max(prices), 2),
-            "budget_count": len(budget_products),
-            "mid_tier_count": len(mid_tier),
-            "premium_count": len(premium_products),
-            "top_3_expensive": [{"title": p.get("title", "")[:40], "price": round(p.get("current_price", 0), 2)} for p in sorted_products[:3]]
+            "pricing_intelligence": {
+                "average_price": round(avg_price, 2),
+                "median_price": round(median_price, 2),
+                "lowest_price": round(min(prices), 2),
+                "highest_price": round(max(prices), 2),
+                "price_spread": round(max(prices) - min(prices), 2)
+            },
+            "market_positioning": {
+                "budget_segment": {
+                    "count": len(budget_products),
+                    "percentage": round(len(budget_products)/len(prices)*100, 1),
+                    "threshold": f"Under ${round(budget_threshold, 2)}"
+                },
+                "mid_tier_segment": {
+                    "count": len(mid_tier),
+                    "percentage": round(len(mid_tier)/len(prices)*100, 1),
+                    "threshold": f"${round(budget_threshold, 2)} - ${round(premium_threshold, 2)}"
+                },
+                "premium_segment": {
+                    "count": len(premium_products),
+                    "percentage": round(len(premium_products)/len(prices)*100, 1),
+                    "threshold": f"Above ${round(premium_threshold, 2)}"
+                }
+            },
+            "strategic_anchors": {
+                "top_3_premium": [{"title": p.get("title", "")[:60], "price": round(p.get("current_price", 0), 2)} for p in sorted_products[:3]],
+                "top_3_entry": [{"title": p.get("title", "")[:60], "price": round(p.get("current_price", 0), 2)} for p in sorted_products[-3:]]
+            }
         }
 
-    def _build_advanced_prompt(self, data: Dict[str, Any]) -> str:
-        # ✅ تم تشديد قيود الطول بشكل أقصى لضمان عدم تجاوز 800 Token
-        return f"""Analyze this e-commerce data and output exactly 2 short strategic insights as valid JSON.
+    def _build_strategic_prompt(self, data: Dict[str, Any]) -> str:
+        system_prompt = """You are an Elite E-commerce Market Strategist with 20+ years of experience at McKinsey & BCG, specializing in competitive warfare and market domination.
 
-DATA: {json.dumps(data, indent=2)}
+## YOUR MISSION
+Generate exactly 4 BOARD-READY, highly actionable strategic insights to help our business outmaneuver and dominate this competitor.
 
-RULES:
-- Output ONLY valid JSON. No markdown, no text outside the JSON.
-- STRICT LENGTH LIMIT: Max 15 words for 'summary' and Max 15 words for 'ai_recommendation'. BE EXTREMELY CONCISE.
-- Include exact numbers from the data.
+## STRICT OUTPUT RULES:
+- Output ONLY valid JSON. No markdown, no conversational text outside the JSON object.
+- 'summary' MUST contain hard data from the report (exact prices, percentages, counts).
+- 'ai_recommendation' MUST be highly specific: include target price points, estimated profit margins (e.g., 45-60%), timelines (e.g., 60-90 days), and inventory targets.
+- 'severity' must be: "critical", "high", "medium", or "low"."""
 
-JSON FORMAT:
+        user_prompt = f"""## COMPETITOR INTELLIGENCE DATA
+{json.dumps(data, indent=2)}
+
+## REQUIRED INSIGHT CATEGORIES (Generate exactly 1 for each):
+1. "pricing_warfare": How they use price to capture share, and how we can undercut or out-value them.
+2. "product_gap": A specific missing category, price point, or feature in their portfolio that we can exploit.
+3. "competitive_threat": Their strongest current advantage based on this data, and how we neutralize it.
+4. "counter_move": A specific, aggressive go-to-market action we should take immediately.
+
+## REQUIRED JSON FORMAT:
 {{
   "insights": [
     {{
-      "type": "pricing",
-      "title": "Short Title",
-      "summary": "Max 15 words with hard data.",
-      "ai_recommendation": "Max 15 words actionable step.",
-      "severity": "medium"
+      "type": "product_gap",
+      "title": "Massive Void in Mid-Tier Premium Segment",
+      "summary": "Competitor has 0 products (0%) in the $80-$120 range, while 65% of their catalog is under $40. They are abandoning high-margin customers.",
+      "ai_recommendation": "Launch a premium capsule collection priced at $99. Target a 60% gross margin. Execute a 60-day influencer campaign. Initial inventory: 500 units.",
+      "severity": "high"
     }}
   ]
-}}
-"""
+}}"""
+        # ✅ تنسيق خاص ومضمون لنموذج Phi-3
+        return f"<|user|>\n{system_prompt}\n\n{user_prompt}<|end|>\n<|assistant|>\n"
 
     def _parse_ai_response(self, text: str) -> List[Dict[str, Any]]:
         try:
-            if not text or not text.strip():
-                raise ValueError("AI returned an empty response")
-                
-            if text.startswith('```'):
-                text = re.sub(r'^```(?:json)?\n', '', text).strip()
-                text = re.sub(r'\n```$', '', text).strip()
+            text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.IGNORECASE).strip()
+            text = re.sub(r'\s*```$', '', text).strip()
+            
+            start_idx = text.find('{')
+            end_idx = text.rfind('}')
+            if start_idx != -1 and end_idx != -1:
+                text = text[start_idx:end_idx+1]
             
             text = text.strip()
             ai_response = json.loads(text)
@@ -309,73 +314,78 @@ JSON FORMAT:
                 return self._generate_fallback_insights()
             
             insights = []
-            for i, insight in enumerate(insights_data[:2]):
+            for i, insight in enumerate(insights_data[:4]):
                 insights.append({
                     "competitor_id": self.competitor['id'],
-                    "type": insight.get('type', 'general'),
-                    "title": insight.get('title', f'Insight #{i+1}'),
+                    "type": insight.get('type', 'general').lower(),
+                    "title": insight.get('title', f'Strategic Insight #{i+1}').strip(),
                     "summary": insight.get('summary', '').strip(),
                     "ai_recommendation": insight.get('ai_recommendation', '').strip(),
                     "severity": insight.get('severity', 'medium').lower(),
                     "created_at": datetime.now(timezone.utc).isoformat()
                 })
             
-            self.logger.info(f"🤖 Generated {len(insights)} ENTERPRISE-GRADE AI insights")
+            self.logger.info(f"🤖 Generated {len(insights)} ELITE STRATEGIC insights")
             return insights
             
         except json.JSONDecodeError as e:
             self.logger.error(f"⚠️ JSON parse failed: {e}")
-            self.logger.error(f"🔍 Raw AI Response: '{text[:300]}...'")
+            self.logger.error(f"🔍 Raw AI Response snippet: '{text[:400]}...'")
             return self._generate_fallback_insights()
         except Exception as e:
             self.logger.error(f"⚠️ Error parsing response: {e}")
             return self._generate_fallback_insights()
 
-    @rate_limit(calls_per_minute=6)
+    @rate_limit(calls_per_minute=10)
     def _generate_advanced_insights(self) -> List[Dict[str, Any]]:
         try:
-            print(f"\n📊 Analyzing {len(self.products)} products from {self.name}...")
+            print(f"\n📊 Analyzing market positioning for {self.name}...")
             analysis_data = self._analyze_competitor_data()
             
             if "error" in analysis_data:
                 return self._generate_fallback_insights()
             
-            prompt = self._build_advanced_prompt(analysis_data)
+            prompt = self._build_strategic_prompt(analysis_data)
             
-            if not self.groq_api_key:
-                self.logger.error("❌ GROQ_API_KEY not found")
-                return self._generate_fallback_insights()
+            print(f"\n☁️ Generating elite strategic counter-moves with Hugging Face (Phi-3-mini)...")
+            print("⏳ Deep market analysis in progress (this may take 30-60 seconds)...")
             
-            print(f"\n🚀 Generating insights with Groq (Model: {self.active_model})...")
-            
+            # ✅ تم التغيير إلى نموذج Phi-3-mini لأنه الأسرع والأكثر استقراراً على الخطة المجانية
             response = requests.post(
-                "https://api.groq.com/openai/v1/chat/completions",
+                "https://api-inference.huggingface.co/models/microsoft/Phi-3-mini-4k-instruct",
                 headers={
-                    "Authorization": f"Bearer {self.groq_api_key}",
+                    "Authorization": f"Bearer {self.hf_api_key}",
                     "Content-Type": "application/json"
                 },
                 json={
-                    "model": self.active_model,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.3,
-                    "max_tokens": 800  # ✅ الرقم المثالي: أقل من حد 1000، وكافٍ لإنهاء JSON
+                    "inputs": prompt,
+                    "parameters": {
+                        "max_new_tokens": 1500,
+                        "temperature": 0.4,
+                        "top_p": 0.9,
+                        "return_full_text": False,
+                        "do_sample": True
+                    }
                 },
-                timeout=30
+                timeout=120
             )
             
             if response.status_code != 200:
-                raise Exception(f"Groq API Error {response.status_code}: {response.text}")
+                raise Exception(f"Hugging Face API Error {response.status_code}: {response.text}")
             
-            groq_response = response.json()
-            text = groq_response["choices"][0]["message"]["content"]
-            
+            hf_response = response.json()
+            if isinstance(hf_response, list) and len(hf_response) > 0:
+                text = hf_response[0].get("generated_text", "")
+            else:
+                text = hf_response.get("generated_text", "")
+                
             return self._parse_ai_response(text)
             
-        except requests.exceptions.ConnectionError:
-            self.logger.error("❌ Cannot connect to Groq API.")
+        except requests.exceptions.ConnectionError as e:
+            self.logger.error(f"❌ Cannot connect to Hugging Face API. Details: {e}")
             return self._generate_fallback_insights()
         except requests.exceptions.Timeout:
-            self.logger.error("❌ Groq API request timed out.")
+            self.logger.error("❌ Hugging Face API request timed out.")
             return self._generate_fallback_insights()
         except Exception as e:
             self.logger.error(f"❌ AI generation failed: {e}")
@@ -390,10 +400,10 @@ JSON FORMAT:
             avg_price = sum(prices) / len(prices)
             insights.append({
                 "competitor_id": self.competitor['id'],
-                "type": "pricing",
-                "title": f"{self.name} — Pricing Analysis",
-                "summary": f"Average price: ${avg_price:.2f} across {len(prices)} products.",
-                "ai_recommendation": "Position core products within 10% of competitor average.",
+                "type": "pricing_warfare",
+                "title": f"{self.name} — Baseline Pricing Intelligence",
+                "summary": f"Average market price: ${avg_price:.2f} across {len(prices)} products.",
+                "ai_recommendation": "Position core competing products within 10% of this average to maintain market parity.",
                 "severity": "medium",
                 "created_at": timestamp
             })
@@ -475,14 +485,51 @@ class VeloraScraper:
             print_error(f"Failed to connect to Supabase: {e}")
             return False
     
+    def display_intelligence_brief(self, brief: Dict, insights: List[Dict]):
+        print_header("📊 MARKET INTELLIGENCE BRIEFING")
+        print(f"{Colors.OKCYAN}{'─'*80}{Colors.ENDC}")
+        
+        print(f"{Colors.BOLD}Target Competitor:{Colors.ENDC} {brief.get('competitor_name')}")
+        print(f"{Colors.BOLD}Products Analyzed:{Colors.ENDC} {brief.get('products_with_pricing')} / {brief.get('total_products_scanned')}")
+        print()
+        
+        pi = brief.get('pricing_intelligence', {})
+        print(f"{Colors.OKGREEN}┌{'─'*78}{Colors.ENDC}")
+        print(f"{Colors.OKGREEN}│{Colors.ENDC} {Colors.BOLD}PRICING INTELLIGENCE{Colors.ENDC}".ljust(80) + f"{Colors.OKGREEN}│{Colors.ENDC}")
+        print(f"{Colors.OKGREEN}├{'─'*78}{Colors.ENDC}")
+        print(f"{Colors.OKGREEN}│{Colors.ENDC} Average Price: ${pi.get('average_price', 0):.2f}  |  Median: ${pi.get('median_price', 0):.2f}")
+        print(f"{Colors.OKGREEN}│{Colors.ENDC} Price Spread:  ${pi.get('lowest_price', 0):.2f}  to  ${pi.get('highest_price', 0):.2f}")
+        print(f"{Colors.OKGREEN}└{'─'*78}┘{Colors.ENDC}")
+        print()
+        
+        mp = brief.get('market_positioning', {})
+        print(f"{Colors.BOLD}🎯 MARKET POSITIONING:{Colors.ENDC}")
+        print(f"  {Colors.WARNING}Budget Segment:{Colors.ENDC} {mp.get('budget_segment', {}).get('count')} products ({mp.get('budget_segment', {}).get('percentage')}%)")
+        print(f"  {Colors.OKCYAN}Mid-Tier Segment:{Colors.ENDC} {mp.get('mid_tier_segment', {}).get('count')} products ({mp.get('mid_tier_segment', {}).get('percentage')}%)")
+        print(f"  {Colors.OKGREEN}Premium Segment:{Colors.ENDC} {mp.get('premium_segment', {}).get('count')} products ({mp.get('premium_segment', {}).get('percentage')}%)")
+        print()
+        
+        print_header("🧠 AI STRATEGIC COUNTER-MOVES")
+        for i, insight in enumerate(insights, 1):
+            severity_color = Colors.WARNING if insight.get('severity') in ['critical', 'high'] else Colors.OKGREEN
+            print(f"\n{Colors.OKCYAN}{'─'*80}{Colors.ENDC}")
+            print(f"{Colors.BOLD}INSIGHT #{i} [{insight.get('type').upper()}] - Severity: {severity_color}{insight.get('severity').upper()}{Colors.ENDC}")
+            print(f"{Colors.BOLD}Title:{Colors.ENDC} {insight.get('title')}")
+            print(f"\n{Colors.OKBLUE}Situation Summary:{Colors.ENDC}")
+            print(f"  {insight.get('summary')}")
+            print(f"\n{Colors.OKGREEN}🎯 Strategic Counter-Move:{Colors.ENDC}")
+            print(f"  {insight.get('ai_recommendation')}")
+        
+        print(f"\n{Colors.OKGREEN}{'═'*80}{Colors.ENDC}\n")
+
     def scan_competitor(self, competitor: Dict[str, Any], url: str) -> bool:
         competitor_name = competitor.get('name', 'Unknown')
         competitor_id = competitor.get('id')
         
-        print(f"\n{'='*60}")
-        print(f"🎯 Scanning: {competitor_name}")
+        print(f"\n{'='*80}")
+        print(f"🎯 Target Acquired: {competitor_name}")
         print(f"📍 URL: {url}")
-        print(f"{'='*60}\n")
+        print(f"{'='*80}\n")
         
         try:
             products = self.scraper.scrape(url)
@@ -491,19 +538,22 @@ class VeloraScraper:
                 return False
             
             timestamp = datetime.now(timezone.utc).isoformat()
-            cleaned_products = [
-                self.scraper.clean_product_data(p, competitor_id, timestamp)
-                for p in products
-            ]
+            cleaned_products = [self.scraper.clean_product_data(p, competitor_id, timestamp) for p in products]
             
             if self.db.upsert_products(cleaned_products) == 0:
                 print_error("Failed to save products")
                 return False
             
-            insight_gen = InsightGenerator(competitor, products)
-            insights = insight_gen.generate_all_insights()
+            intel_engine = MarketIntelligenceEngine(competitor, products)
+            insights = intel_engine.generate_all_insights()
+            
+            brief = intel_engine._analyze_competitor_data()
+            if "error" not in brief:
+                self.display_intelligence_brief(brief, insights)
+            
             if insights:
                 self.db.save_insights(insights)
+                print_success(f"Saved {len(insights)} strategic insights to database (Ready for Flutter & Email)")
             
             try:
                 print(f"\n📈 Analyzing price trends for {competitor_name}...")
@@ -513,16 +563,14 @@ class VeloraScraper:
                 if "error" not in trend_data and trend_data.get("insights"):
                     self.db.save_trend_insights(trend_data["insights"])
                     print_success(f"Saved {len(trend_data['insights'])} trend insights")
-                else:
-                    print_warning("Not enough historical data for trend analysis yet.")
             except Exception as e:
                 self.logger.error(f"Trend analysis failed: {e}")
             
             self.db.update_competitor_scan_time(competitor_id)
             
-            print_success(f"✅ Completed scan for {competitor_name}")
-            print(f"   • Products: {len(cleaned_products)}")
-            print(f"   • AI Insights: {len(insights)}")
+            print_success(f"✅ Mission Complete: {competitor_name}")
+            print(f"   • Products Mapped: {len(cleaned_products)}")
+            print(f"   • Strategic Insights Generated: {len(insights)}")
             
             return True
             
@@ -573,12 +621,9 @@ class VeloraScraper:
         else:
             self.run_dynamic_mode(force_all=False)
 
-# ═══════════════════════════════════════════════════════════
-# 🎯 Main Entry Point
-# ══════════════════════════════════════════════════════════
 def main():
     parser = argparse.ArgumentParser(
-        description="Velora — Advanced Competitive Intelligence Engine",
+        description="Velora — Competitive Market Intelligence Engine",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
