@@ -1,8 +1,9 @@
 """
-🚀 Velora — Advanced Competitive Market Intelligence Engine
+ Velora — Advanced Competitive Market Intelligence Engine
 ═══════════════════════════════════════════════════════════════
 PRODUCTION VERSION — Cloud-Powered (Hugging Face)
 Fast, Reliable, and Ready for GitHub Actions
+Free Tier: 3 Competitors, Scan Every 24 Hours
 """
 
 import os, sys, time, json, logging, argparse, re, inspect, asyncio, requests
@@ -44,7 +45,7 @@ def rate_limit(calls_per_minute: int = 10):
     return decorator
 
 # ═══════════════════════════════════════════════════════════
-# 📝 Logging Configuration
+#  Logging Configuration
 # ═════════════════════════════════════════════════════════
 logging.basicConfig(
     level=logging.INFO,
@@ -90,7 +91,7 @@ class Config:
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
         self.hf_api_key = os.getenv("HF_API_KEY")
-        self.scan_interval = int(os.getenv("SCAN_INTERVAL", "600"))
+        self.scan_interval = int(os.getenv("SCAN_INTERVAL", "86400"))
         self.max_retries = int(os.getenv("MAX_RETRIES", "3"))
         
     def validate(self) -> bool:
@@ -113,12 +114,17 @@ class DatabaseManager:
     
     def get_pending_competitors(self, force_all: bool = False) -> List[Dict[str, Any]]:
         try:
+            # ✅ قراءة الحد الأقصى من متغير البيئة (افتراضي: 3)
+            max_competitors = int(os.getenv("MAX_COMPETITORS", "3"))
+            
             query = self.supabase.table("competitors").select("id, name, website, shopify_store, user_id")
             if not force_all:
-                threshold_str = (datetime.now(timezone.utc) - timedelta(hours=6)).isoformat().replace('+00:00', 'Z')
+                # ✅ تغيير من 6 ساعات إلى 24 ساعة
+                threshold_str = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat().replace('+00:00', 'Z')
                 query = query.or_(f"last_scan_at.is.null,last_scan_at.lt.{threshold_str}")
-            response = query.order("last_scan_at", desc=True, nullsfirst=True).limit(50).execute()
-            self.logger.info(f"Found {len(response.data or [])} competitor(s) to scan")
+            # ✅ استخدام الحد الأقصى بدلاً من 50
+            response = query.order("last_scan_at", desc=True, nullsfirst=True).limit(max_competitors).execute()
+            self.logger.info(f"Found {len(response.data or [])} competitor(s) to scan (Max: {max_competitors})")
             return response.data or []
         except Exception as e:
             self.logger.error(f"Failed to fetch competitors: {e}")
@@ -196,7 +202,7 @@ class DatabaseManager:
             return False
 
 # ═══════════════════════════════════════════════════════════
-# 🧠 ELITE MARKET INTELLIGENCE ENGINE (Cloud-Powered)
+#  ELITE MARKET INTELLIGENCE ENGINE (Cloud-Powered)
 # ═══════════════════════════════════════════════════════════
 class MarketIntelligenceEngine:
     def __init__(self, competitor: Dict[str, Any], products: List[Dict[str, Any]]):
@@ -333,7 +339,7 @@ Generate exactly 4 BOARD-READY, highly actionable strategic insights to help our
             self.logger.error(f"🔍 Raw AI Response snippet: '{text[:400]}...'")
             return self._generate_fallback_insights()
         except Exception as e:
-            self.logger.error(f"⚠️ Error parsing response: {e}")
+            self.logger.error(f"️ Error parsing response: {e}")
             return self._generate_fallback_insights()
 
     @rate_limit(calls_per_minute=10)
@@ -382,7 +388,7 @@ Generate exactly 4 BOARD-READY, highly actionable strategic insights to help our
             return self._parse_ai_response(text)
             
         except requests.exceptions.ConnectionError as e:
-            self.logger.error(f"❌ Cannot connect to Hugging Face API. Details: {e}")
+            self.logger.error(f" Cannot connect to Hugging Face API. Details: {e}")
             return self._generate_fallback_insights()
         except requests.exceptions.Timeout:
             self.logger.error("❌ Hugging Face API request timed out.")
@@ -413,7 +419,7 @@ Generate exactly 4 BOARD-READY, highly actionable strategic insights to help our
 
 # ═══════════════════════════════════════════════════════════
 # 🕷️ Scraper Engine
-# ══════════════════════════════════════════════════════════
+# ═════════════════════════════════════════════════════════
 class ScraperEngine:
     def __init__(self):
         self.scrapers = {
@@ -580,15 +586,15 @@ class VeloraScraper:
             return False
     
     def run_dynamic_mode(self, force_all: bool = False):
-        print_info("🔄 Running in DYNAMIC MODE")
+        print_info(" Running in DYNAMIC MODE")
         pending = self.db.get_pending_competitors(force_all=force_all)
         
         if not pending:
             print_success("✅ All competitors are up to date!")
-            print_info("   Next auto-update in 6 hours")
+            print_info("   Next auto-update in 24 hours")
             return
         
-        print_info(f"📋 Found {len(pending)} competitor(s) to scan\n")
+        print_info(f" Found {len(pending)} competitor(s) to scan\n")
         
         for i, comp in enumerate(pending, 1):
             print(f"\n[{i}/{len(pending)}]")
@@ -629,7 +635,7 @@ def main():
 Examples:
   python main.py                          # Scan outdated competitors
   python main.py --force-all              # Force scan all competitors
-  python main.py --continuous             # Run continuously (every 600s)
+  python main.py --continuous             # Run continuously (every 86400s)
   python main.py https://example.com      # Scan specific URL
         """
     )
