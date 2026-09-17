@@ -3,11 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:timeago/timeago.dart' as timeago;
+import 'package:timeago/timeago.dart' as timeago';
 
-// ✅ استيراد شاشات التحليل (تم تصحيح المسار هنا)
+// ✅ استيراد شاشات التحليل
 import 'competitor_analysis_screen.dart';
-import '../../../insights/presentation/screens/trend_analysis_screen.dart'; // ✅ FIXED PATH
+import '../../../insights/presentation/screens/trend_analysis_screen.dart';
 
 import '../../../../core/config/app_colors.dart';
 import '../../../../core/widgets/premium_widgets.dart';
@@ -15,7 +15,7 @@ import '../../data/competitors_repository.dart';
 import '../providers/competitors_providers.dart';
 
 // ═══════════════════════════════════════════════════════════
-// 🎯 COMPETITORS SCREEN — AI PREMIUM EDITION
+// 🎯 COMPETITORS SCREEN — AI PREMIUM EDITION (Debug Version)
 // ═══════════════════════════════════════════════════════════
 class CompetitorsScreen extends ConsumerStatefulWidget {
   const CompetitorsScreen({super.key});
@@ -35,7 +35,8 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
   void initState() {
     super.initState();
     
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+    // ✅ تم زيادة المدة إلى 60 ثانية لتقليل الضغط على الشبكة أثناء التشخيص
+    _refreshTimer = Timer.periodic(const Duration(seconds: 60), (timer) {
       if (mounted) {
         ref.invalidate(competitorsListProvider);
         ref.invalidate(competitorsStatsProvider);
@@ -56,27 +57,37 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
     final competitorsAsync = ref.watch(competitorsListProvider);
     final statsAsync = ref.watch(competitorsStatsProvider);
 
+    // ✅ DEBUG: طباعة الحالة في الكونسول لمعرفة أين يتوقف التطبيق
+    debugPrint('🏗️ [CompetitorsScreen] Building... Loading: ${competitorsAsync.isLoading}, Error: ${competitorsAsync.hasError}');
+
     return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: AnimatedGradientBackground(
-        child: RefreshIndicator(
-          onRefresh: () async {
-            ref.invalidate(competitorsListProvider);
-            ref.invalidate(competitorsStatsProvider);
-            await Future.delayed(const Duration(milliseconds: 500));
-          },
-          color: AppColors.darkAccent,
-          backgroundColor: AppColors.darkSurface,
-          child: competitorsAsync.when(
-            loading: () => const _LoadingState(),
-            error: (e, _) => _ErrorState(
-              error: e.toString(),
-              onRetry: () => ref.invalidate(competitorsListProvider),
-            ),
-            data: (competitors) => _buildContent(
-              context,
-              competitors,
-              statsAsync,
+      // ✅ FIX: استخدام لون خلفية ثابت بدلاً من الشفاف للتأكد من أن الشاشة ترسم
+      backgroundColor: AppColors.darkSurface, 
+      body: SafeArea(
+        child: AnimatedGradientBackground(
+          child: RefreshIndicator(
+            onRefresh: () async {
+              ref.invalidate(competitorsListProvider);
+              ref.invalidate(competitorsStatsProvider);
+              await Future.delayed(const Duration(milliseconds: 500));
+            },
+            color: AppColors.darkAccent,
+            backgroundColor: AppColors.darkSurface,
+            child: competitorsAsync.when(
+              loading: () => const Center(
+                child: CircularProgressIndicator(color: AppColors.darkAccent),
+              ),
+              error: (e, stack) {
+                debugPrint('❌ [CompetitorsScreen] Error caught: $e');
+                return _ErrorState(
+                  error: e.toString(),
+                  onRetry: () => ref.invalidate(competitorsListProvider),
+                );
+              },
+              data: (competitors) {
+                debugPrint('✅ [CompetitorsScreen] Data loaded. Count: ${competitors.length}');
+                return _buildContent(context, competitors, statsAsync);
+              },
             ),
           ),
         ),
@@ -419,7 +430,6 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
     );
   }
 
-  // ✅ NEW: Navigate to Trend Analysis Screen
   void _navigateToTrends(BuildContext context, Competitor c) {
     Navigator.push(
       context,
