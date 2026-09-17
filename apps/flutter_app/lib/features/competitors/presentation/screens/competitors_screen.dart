@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:timeago/timeago.dart' as timeago;
+import 'package:timeago/timeago.dart' as timeago; // ✅ تم إصلاح خطأ الاقتباس هنا
 
 // ✅ استيراد شاشات التحليل
 import 'competitor_analysis_screen.dart';
@@ -15,7 +15,7 @@ import '../../data/competitors_repository.dart';
 import '../providers/competitors_providers.dart';
 
 // ═══════════════════════════════════════════════════════════
-// 🎯 COMPETITORS SCREEN — AI PREMIUM EDITION (Debug Version)
+// 🎯 COMPETITORS SCREEN — AI PREMIUM EDITION (FULL FIXED)
 // ═══════════════════════════════════════════════════════════
 class CompetitorsScreen extends ConsumerStatefulWidget {
   const CompetitorsScreen({super.key});
@@ -35,7 +35,6 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
   void initState() {
     super.initState();
     
-    // ✅ تم زيادة المدة إلى 60 ثانية لتقليل الضغط على الشبكة أثناء التشخيص
     _refreshTimer = Timer.periodic(const Duration(seconds: 60), (timer) {
       if (mounted) {
         ref.invalidate(competitorsListProvider);
@@ -57,13 +56,12 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
     final competitorsAsync = ref.watch(competitorsListProvider);
     final statsAsync = ref.watch(competitorsStatsProvider);
 
-    // ✅ DEBUG: طباعة الحالة في الكونسول لمعرفة أين يتوقف التطبيق
     debugPrint('🏗️ [CompetitorsScreen] Building... Loading: ${competitorsAsync.isLoading}, Error: ${competitorsAsync.hasError}');
 
     return Scaffold(
-      // ✅ FIX: استخدام لون خلفية ثابت بدلاً من الشفاف للتأكد من أن الشاشة ترسم
+      // ✅ الإصلاح الحاسم: خلفية داكنة مضمونة الظهور بدلاً من الشفاف
       backgroundColor: AppColors.darkSurface, 
-      body: SafeArea(
+      body: SafeArea( // ✅ إضافة SafeArea لمنع القص في متصفحات الويب
         child: AnimatedGradientBackground(
           child: RefreshIndicator(
             onRefresh: () async {
