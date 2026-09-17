@@ -116482,7 +116482,7 @@ r.T$=0
 s.x.m()
 s.b0()},
 A(a){var s=this,r=null,q=s.gd0().bJ($.xn(),t.Hh),p=s.gd0().bJ($.Rf(),t.mU)
-A.xj().$1("\ufe0f [CompetitorsScreen] Building... Loading: "+q.gkG()+", Error: "+(q.gjb(q)!=null))
+A.xj().$1("\ud83c\udfd7\ufe0f [CompetitorsScreen] Building... Loading: "+q.gkG()+", Error: "+(q.gjb(q)!=null))
 return A.nf(r,B.b3,A.vY(!0,new A.lj(new A.Iy(A.fW(q,new A.aLG(s,a,p),new A.aLH(s),new A.aLI(),!1,!0,!1,t.BZ,t.o),new A.aLJ(s),B.aR,B.b3,r),r),B.a5,!0),r)},
 afi(a,b,c){var s=this,r=null,q=s.w,p=J.ad(b),o=A.a([new A.ey(new A.aeh(new A.aLf(s,a),r),r),new A.ey(A.d6(A.bq(new A.aG(B.tU,A.fW(c,new A.aLg(),new A.aLh(),new A.aLj(),!1,!0,!1,t.f4,t.jK),r),A.al(1e5,0,0),r,r),r,r,r),r),new A.ey(A.d6(A.bq(new A.aG(B.tU,new A.aep(q,s.x,s.z,J.b5(s.JQ(b)),p.gt(b),new A.aLk(s),new A.aLl(s),r),r),A.al(2e5,0,0),r,r),r,r,r),r)],t.p)
 if(p.ga8(b))o.push(new A.ey(A.k9(A.d6(A.bq(new A.aG(B.tX,new A.a8S(new A.aLm(s,a),r),r),A.al(3e5,0,0),r,r),r,r,r),B.dI,r,r,B.lo),r))

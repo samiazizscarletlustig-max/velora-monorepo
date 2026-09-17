@@ -16,7 +16,7 @@ import '../providers/competitors_providers.dart';
 
 // ═══════════════════════════════════════════════════════════
 // 🎯 COMPETITORS SCREEN — AI PREMIUM EDITION (FULL FIXED)
-// ══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 class CompetitorsScreen extends ConsumerStatefulWidget {
   const CompetitorsScreen({super.key});
 
@@ -470,7 +470,7 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  SORT MODES
+// 🎯 SORT MODES
 // ═══════════════════════════════════════════════════════════
 enum CompetitorSortMode {
   recentlyScanned('Recently scanned', Icons.schedule_rounded),
@@ -557,7 +557,7 @@ class _ScreenHeader extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  SEARCH + SORT TOOLBAR
+// 🔍 SEARCH + SORT TOOLBAR
 // ═══════════════════════════════════════════════════════════
 class _SearchSortToolbar extends StatelessWidget {
   final TextEditingController searchController;
@@ -775,7 +775,7 @@ class _ResultsCounter extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ️ SORT DROPDOWN
+// 🎚️ SORT DROPDOWN
 // ═══════════════════════════════════════════════════════════
 class _SortDropdown extends StatelessWidget {
   final CompetitorSortMode currentMode;
@@ -856,7 +856,7 @@ class _SortDropdown extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  ANIMATED STATS ROW
+// 📊 ANIMATED STATS ROW
 // ═══════════════════════════════════════════════════════════
 class _AnimatedStatsRow extends StatelessWidget {
   final CompetitorStats stats;
@@ -1033,7 +1033,7 @@ class _StatsLoading extends StatelessWidget {
   }
 }
 
-// ══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 // 🏪 COMPETITORS LIST
 // ═══════════════════════════════════════════════════════════
 class _CompetitorsList extends StatelessWidget {
@@ -1412,7 +1412,7 @@ class _ActionButton extends StatelessWidget {
   }
 }
 
-// ══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 // 🏷️ STATUS BADGE
 // ═══════════════════════════════════════════════════════════
 class _StatusBadge extends StatelessWidget {
@@ -1710,7 +1710,7 @@ class _FeatureHint extends StatelessWidget {
 
 // ═══════════════════════════════════════════════════════════
 // ⏳ LOADING STATE
-// ══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 class _LoadingState extends StatelessWidget {
   const _LoadingState();
 
