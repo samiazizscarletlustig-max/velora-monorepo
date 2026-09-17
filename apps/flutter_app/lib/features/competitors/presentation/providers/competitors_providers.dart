@@ -16,9 +16,16 @@ final competitorsRepositoryProvider = Provider<CompetitorsRepository>((ref) {
 // 🔐 Auth Helper
 // ═══════════════════════════════════════════
 
-/// جلب ID المستخدم الحالي من Supabase Auth
+/// جلب ID المستخدم الحالي من Supabase Auth بشكل آمن
 String? _getCurrentUserId() {
-  return Supabase.instance.client.auth.currentUser?.id;
+  final user = Supabase.instance.client.auth.currentUser;
+  final userId = user?.id;
+  
+  // ✅ FIX: Ensure userId is not null AND not empty
+  if (userId == null || userId.trim().isEmpty) {
+    return null;
+  }
+  return userId.trim();
 }
 
 // ═══════════════════════════════════════════
@@ -29,25 +36,37 @@ String? _getCurrentUserId() {
 final competitorsListProvider = FutureProvider<List<Competitor>>((ref) async {
   final userId = _getCurrentUserId();
   if (userId == null) {
-    _logWarning('competitorsListProvider', 'No user logged in');
+    _logWarning('competitorsListProvider', 'No user logged in or userId is empty. Returning empty list.');
     return const [];
   }
 
+  _logInfo('competitorsListProvider', 'Fetching competitors for userId: $userId');
   final repository = ref.watch(competitorsRepositoryProvider);
-  return repository.getAll(userId: userId);
+  
+  try {
+    return await repository.getAll(userId: userId);
+  } catch (e, stack) {
+    _logError('competitorsListProvider', 'Failed to fetch: $e', stack);
+    rethrow; // Let the UI handle the error state
+  }
 });
 
 /// Provider لإحصائيات المنافسين (معزل بالمستخدم)
-/// ✅ Updated: Returns CompetitorStats instead of Map<String, int>
 final competitorsStatsProvider = FutureProvider<CompetitorStats>((ref) async {
   final userId = _getCurrentUserId();
   if (userId == null) {
-    _logWarning('competitorsStatsProvider', 'No user logged in');
+    _logWarning('competitorsStatsProvider', 'No user logged in. Returning empty stats.');
     return CompetitorStats.empty;
   }
 
   final repository = ref.watch(competitorsRepositoryProvider);
-  return repository.getStats(userId: userId);
+  
+  try {
+    return await repository.getStats(userId: userId);
+  } catch (e, stack) {
+    _logError('competitorsStatsProvider', 'Failed to fetch stats: $e', stack);
+    return CompetitorStats.empty; // Fallback to empty stats on error to prevent UI crash
+  }
 });
 
 // ═══════════════════════════════════════════
@@ -60,7 +79,7 @@ final searchQueryProvider = StateProvider<String>((ref) => '');
 /// Provider للمنافسين المفلترين (حسب البحث)
 final filteredCompetitorsProvider = Provider<List<Competitor>>((ref) {
   final competitorsAsync = ref.watch(competitorsListProvider);
-  final searchQuery = ref.watch(searchQueryProvider).toLowerCase();
+  final searchQuery = ref.watch(searchQueryProvider).toLowerCase().trim();
 
   return competitorsAsync.whenOrNull(
         data: (competitors) {
@@ -74,8 +93,7 @@ final filteredCompetitorsProvider = Provider<List<Competitor>>((ref) {
                    domain.contains(searchQuery);
           }).toList();
         },
-      ) ??
-      const [];
+      ) ?? const [];
 });
 
 // ═══════════════════════════════════════════
@@ -83,8 +101,7 @@ final filteredCompetitorsProvider = Provider<List<Competitor>>((ref) {
 // ═══════════════════════════════════════════
 
 /// Provider لإضافة منافس جديد
-final addCompetitorProvider =
-    FutureProvider.autoDispose.family<bool, AddCompetitorParams>(
+final addCompetitorProvider = FutureProvider.autoDispose.family<bool, AddCompetitorParams>(
   (ref, params) async {
     final userId = _getCurrentUserId();
     if (userId == null) {
@@ -102,23 +119,24 @@ final addCompetitorProvider =
         shopifyStore: params.shopifyStore,
       );
 
+      // ✅ FIX: Invalidate to refresh UI immediately
       ref.invalidate(competitorsListProvider);
       ref.invalidate(competitorsStatsProvider);
-      _logInfo('addCompetitorProvider', 'Added: ${params.name}');
+      
+      _logInfo('addCompetitorProvider', 'Successfully added: ${params.name}');
       return true;
     } on CompetitorException catch (e) {
-      _logError('addCompetitorProvider', e);
-      rethrow; // Re-throw so UI can show proper error
-    } catch (e) {
-      _logError('addCompetitorProvider', e);
+      _logError('addCompetitorProvider', 'CompetitorException: ${e.message}');
+      rethrow; // Re-throw so UI dialog can show the specific error message
+    } catch (e, stack) {
+      _logError('addCompetitorProvider', 'Unexpected error: $e', stack);
       return false;
     }
   },
 );
 
 /// Provider لحذف منافس
-final deleteCompetitorProvider =
-    FutureProvider.autoDispose.family<bool, String>((ref, id) async {
+final deleteCompetitorProvider = FutureProvider.autoDispose.family<bool, String>((ref, id) async {
   final userId = _getCurrentUserId();
   if (userId == null) {
     _logError('deleteCompetitorProvider', 'No user logged in');
@@ -128,30 +146,25 @@ final deleteCompetitorProvider =
   final repository = ref.read(competitorsRepositoryProvider);
 
   try {
-    final result = await repository.deleteCompetitor(
-      id: id,
-      userId: userId,
-    );
+    final result = await repository.deleteCompetitor(id: id, userId: userId);
 
     if (result) {
-      // Refresh lists after successful delete
       ref.invalidate(competitorsListProvider);
       ref.invalidate(competitorsStatsProvider);
-      _logInfo('deleteCompetitorProvider', 'Deleted: $id');
+      _logInfo('deleteCompetitorProvider', 'Successfully deleted: $id');
     }
     return result;
   } on CompetitorException catch (e) {
-    _logError('deleteCompetitorProvider', e);
+    _logError('deleteCompetitorProvider', 'CompetitorException: ${e.message}');
     return false;
-  } catch (e) {
-    _logError('deleteCompetitorProvider', e);
+  } catch (e, stack) {
+    _logError('deleteCompetitorProvider', 'Unexpected error: $e', stack);
     return false;
   }
 });
 
 /// Provider لتحديث منافس (مثل last_scan_at)
-final updateCompetitorProvider =
-    FutureProvider.autoDispose.family<bool, UpdateCompetitorParams>(
+final updateCompetitorProvider = FutureProvider.autoDispose.family<bool, UpdateCompetitorParams>(
   (ref, params) async {
     final userId = _getCurrentUserId();
     if (userId == null) {
@@ -173,19 +186,25 @@ final updateCompetitorProvider =
 
       ref.invalidate(competitorsListProvider);
       ref.invalidate(competitorsStatsProvider);
+      _logInfo('updateCompetitorProvider', 'Successfully updated: ${params.id}');
       return true;
     } on CompetitorException catch (e) {
-      _logError('updateCompetitorProvider', e);
+      _logError('updateCompetitorProvider', 'CompetitorException: ${e.message}');
+      return false;
+    } catch (e, stack) {
+      _logError('updateCompetitorProvider', 'Unexpected error: $e', stack);
       return false;
     }
   },
 );
 
 /// Provider لحذف عدة منافسين (batch)
-final deleteManyCompetitorsProvider =
-    FutureProvider.autoDispose.family<int, List<String>>((ref, ids) async {
+final deleteManyCompetitorsProvider = FutureProvider.autoDispose.family<int, List<String>>((ref, ids) async {
   final userId = _getCurrentUserId();
-  if (userId == null) return 0;
+  if (userId == null) {
+    _logError('deleteManyCompetitorsProvider', 'No user logged in');
+    return 0;
+  }
 
   final repository = ref.read(competitorsRepositoryProvider);
 
@@ -194,10 +213,11 @@ final deleteManyCompetitorsProvider =
     if (count > 0) {
       ref.invalidate(competitorsListProvider);
       ref.invalidate(competitorsStatsProvider);
+      _logInfo('deleteManyCompetitorsProvider', 'Successfully deleted $count competitors');
     }
     return count;
-  } catch (e) {
-    _logError('deleteManyCompetitorsProvider', e);
+  } catch (e, stack) {
+    _logError('deleteManyCompetitorsProvider', 'Unexpected error: $e', stack);
     return 0;
   }
 });
@@ -205,9 +225,9 @@ final deleteManyCompetitorsProvider =
 /// Provider للـ pull-to-refresh
 final refreshCompetitorsProvider = Provider((ref) {
   return () {
+    _logInfo('refreshCompetitorsProvider', 'Manual refresh triggered');
     ref.invalidate(competitorsListProvider);
     ref.invalidate(competitorsStatsProvider);
-    _logInfo('refreshCompetitorsProvider', 'Refreshed');
   };
 });
 
@@ -261,8 +281,11 @@ void _logWarning(String provider, String message) {
   }
 }
 
-void _logError(String provider, Object error) {
+void _logError(String provider, Object error, [StackTrace? stack]) {
   if (kDebugMode) {
     debugPrint('❌ [$provider] $error');
+    if (stack != null) {
+      debugPrint('Stack trace: ${stack.toString().split('\n').take(4).join('\n')}');
+    }
   }
 }

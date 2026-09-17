@@ -29,7 +29,7 @@ class PermissionException extends CompetitorException {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🏪 Competitor Model — Enhanced
+// 🏪 Competitor Model — Enhanced & SAFE
 // ═══════════════════════════════════════════════════════
 @immutable
 class Competitor {
@@ -66,7 +66,10 @@ class Competitor {
       userId: map['user_id']?.toString() ?? '',
       createdAt: _parseDateTime(map['created_at']) ?? DateTime.now(),
       lastScanAt: _parseDateTime(map['last_scan_at']),
-      productsCount: (map['products_count'] as num?)?.toInt() ?? 0,
+      // ✅ FIX: Safe parsing to prevent TypeError crash
+      productsCount: (map['products_count'] != null) 
+          ? int.tryParse(map['products_count'].toString()) ?? 0 
+          : 0,
     );
   }
 
@@ -96,7 +99,6 @@ class Competitor {
   }
 
   // ─── Computed Properties ──────────────────────────
-  /// اسم النطاق (domain) المستخرج من website
   String? get domain {
     if (website == null || website!.isEmpty) return null;
     try {
@@ -107,35 +109,29 @@ class Competitor {
     }
   }
 
-  /// الشعار (favicon) من Google API
   String? get faviconUrl {
     final d = domain;
     if (d == null) return null;
     return 'https://www.google.com/s2/favicons?domain=$d&sz=128';
   }
 
-  /// الحرف الأول (لـ fallback avatar)
   String get initial => name.isNotEmpty ? name[0].toUpperCase() : '?';
 
-  /// هل تم فحصه في آخر 7 أيام؟
   bool get isRecentlyScanned {
     if (lastScanAt == null) return false;
     return DateTime.now().difference(lastScanAt!).inDays < 7;
   }
 
-  /// هل يحتاج فحص عاجل؟ (> 14 يوم أو لم يُفحص أبداً)
   bool get needsUrgentScan {
     if (lastScanAt == null) return true;
     return DateTime.now().difference(lastScanAt!).inDays > 14;
   }
 
-  /// تنسيق "last scan" نسبي
   String get lastScanFormatted {
     if (lastScanAt == null) return 'Never scanned';
     return _formatRelativeTime(lastScanAt!);
   }
 
-  /// العمر منذ الإنشاء
   String get ageFormatted => _formatRelativeTime(createdAt);
 
   // ─── Equality ─────────────────────────────────────
@@ -193,13 +189,14 @@ class CompetitorsRepository {
   // 📋 READ OPERATIONS
   // ═══════════════════════════════════════════════════
 
-  /// جلب جميع المنافسين للمستخدم (مع عدد المنتجات — query واحد!)
-  /// ✅ Optimized: Uses batch product counting (no N+1)
+  /// جلب جميع المنافسين للمستخدم
   Future<List<Competitor>> getAll({required String userId}) async {
+    // ✅ FIX: Debug print to catch empty userId immediately
+    debugPrint('🔍 DEBUG: Attempting to fetch competitors for userId: $userId');
+    
     _validateUserId(userId);
 
     try {
-      // 1. Fetch all competitors
       final competitors = await _withTimeout(
         () => _client
             .from('competitors')
@@ -211,11 +208,9 @@ class CompetitorsRepository {
 
       if (competitors.isEmpty) return const [];
 
-      // 2. Batch count products for all competitors (single query)
       final competitorIds = competitors.map((c) => c['id'] as String).toList();
       final productsCountMap = await _batchCountProducts(competitorIds);
 
-      // 3. Merge counts into competitors
       return competitors.map((map) {
         final id = map['id'] as String;
         return Competitor.fromMap({
@@ -227,7 +222,7 @@ class CompetitorsRepository {
       rethrow;
     } catch (e, stack) {
       _logError('getAll', e, stack);
-      return const [];
+      return const []; // Return empty list instead of crashing
     }
   }
 
@@ -251,7 +246,6 @@ class CompetitorsRepository {
 
       if (response == null) return null;
 
-      // Count products
       final count = await _countProductsForCompetitor(id);
       return Competitor.fromMap({...response, 'products_count': count});
     } on CompetitorException {
@@ -292,7 +286,7 @@ class CompetitorsRepository {
   // ✏️ WRITE OPERATIONS
   // ═══════════════════════════════════════════════════
 
-  /// إضافة منافس جديد (مع validation + duplicate check)
+  /// إضافة منافس جديد
   Future<Competitor> addCompetitor({
     required String name,
     required String userId,
@@ -301,7 +295,6 @@ class CompetitorsRepository {
   }) async {
     _validateUserId(userId);
 
-    // Validation
     final trimmedName = name.trim();
     if (trimmedName.isEmpty) {
       throw ValidationException('Competitor name cannot be empty');
@@ -317,7 +310,6 @@ class CompetitorsRepository {
         ? _normalizeUrl(shopifyStore!.trim())
         : null;
 
-    // Duplicate check
     if (normalizedWebsite != null) {
       final existing = await findByWebsite(
         website: normalizedWebsite,
@@ -359,7 +351,7 @@ class CompetitorsRepository {
     }
   }
 
-  /// تحديث منافس (مع التحقق من الملكية)
+  /// تحديث منافس
   Future<Competitor> updateCompetitor({
     required String id,
     required String userId,
@@ -413,7 +405,7 @@ class CompetitorsRepository {
     }
   }
 
-  /// حذف منافس واحد (مع cascade للمنتجات والرؤى)
+  /// حذف منافس واحد
   Future<bool> deleteCompetitor({
     required String id,
     required String userId,
@@ -421,7 +413,6 @@ class CompetitorsRepository {
     _validateUserId(userId);
 
     try {
-      // Verify ownership first
       final exists = await _client
           .from('competitors')
           .select('id')
@@ -448,7 +439,7 @@ class CompetitorsRepository {
     }
   }
 
-  /// حذف عدة منافسين دفعة واحدة (batch delete)
+  /// حذف عدة منافسين
   Future<int> deleteMany({
     required List<String> ids,
     required String userId,
@@ -479,7 +470,7 @@ class CompetitorsRepository {
   // 📊 ANALYTICS & STATS
   // ═══════════════════════════════════════════════════
 
-  /// إحصائيات المستخدم (محسّنة — queries أقل)
+  /// إحصائيات المستخدم
   Future<CompetitorStats> getStats({required String userId}) async {
     _validateUserId(userId);
 
@@ -520,7 +511,7 @@ class CompetitorsRepository {
     }
   }
 
-  /// تسجيل بدء عملية scan (يُستدعى قبل تشغيل scraper)
+  /// تسجيل بدء عملية scan
   Future<bool> markScanStarted({
     required String competitorId,
     required String userId,
@@ -542,7 +533,6 @@ class CompetitorsRepository {
   // 🔧 PRIVATE HELPERS
   // ═══════════════════════════════════════════════════
 
-  /// Batch count products for multiple competitors (single query approach)
   Future<Map<String, int>> _batchCountProducts(List<String> competitorIds) async {
     if (competitorIds.isEmpty) return {};
 
@@ -552,7 +542,6 @@ class CompetitorsRepository {
           .select('competitor_id')
           .inFilter('competitor_id', competitorIds);
 
-      // Group by competitor_id
       final counts = <String, int>{};
       for (final p in products) {
         final cid = p['competitor_id'] as String;
@@ -579,7 +568,6 @@ class CompetitorsRepository {
 
   Future<int> _getTotalProductsCount(String userId) async {
     try {
-      // Get all competitor IDs
       final competitors = await _client
           .from('competitors')
           .select('id')
@@ -599,7 +587,6 @@ class CompetitorsRepository {
     }
   }
 
-  /// Normalize URL (add https:// if missing)
   String _normalizeUrl(String url) {
     if (url.isEmpty) return url;
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
@@ -614,7 +601,6 @@ class CompetitorsRepository {
     }
   }
 
-  /// Execute operation with timeout
   Future<T> _withTimeout<T>(
     Future<T> Function() action, {
     required String operation,
@@ -629,7 +615,6 @@ class CompetitorsRepository {
     }
   }
 
-  // ─── Logging Helpers ─────────────────────────────
   void _logInfo(String operation, String message) {
     if (kDebugMode) {
       debugPrint('✅ [$operation] $message');
@@ -673,12 +658,8 @@ class CompetitorStats {
     neverScanned: 0,
   );
 
-  /// نسبة المنافسين المفحوصين هذا الأسبوع
   double get scanRate => total == 0 ? 0 : scannedThisWeek / total;
-
-  /// متوسط المنتجات لكل منافس
-  double get avgProductsPerCompetitor =>
-      total == 0 ? 0 : products / total;
+  double get avgProductsPerCompetitor => total == 0 ? 0 : products / total;
 
   Map<String, int> toMap() => {
         'total': total,
