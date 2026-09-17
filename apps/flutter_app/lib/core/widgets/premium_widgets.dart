@@ -1,5 +1,6 @@
 import 'dart:ui';
 
+import 'package:flutter/foundation.dart'; // ✅ NEW: for kIsWeb
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:shimmer/shimmer.dart';
@@ -7,8 +8,11 @@ import 'package:shimmer/shimmer.dart';
 import '../config/app_colors.dart';
 
 /// ═══════════════════════════════════════════════════════════
-/// 💎 VELORA PREMIUM DESIGN SYSTEM
+/// 💎 VELORA PREMIUM DESIGN SYSTEM (WEB-SAFE EDITION)
 /// Production-ready, accessible, high-performance components.
+/// ✅ FIXED: BackdropFilter, Shimmer blend-modes and infinite
+///    orb repaints are now disabled/simplified on Flutter Web
+///    to prevent silent release-mode crashes (gray screen).
 /// ═══════════════════════════════════════════════════════════
 
 // ─────────────────────────────────────────────────────────────
@@ -53,6 +57,10 @@ class _GlassCardState extends State<GlassCard> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    // ✅ WEB FIX: BackdropFilter crashes / blanks Flutter Web release
+    // builds. We only use real backdrop blur on native platforms.
+    final bool useBlur = widget.blur && !kIsWeb;
+
     // ── Inner card body ──
     Widget card = AnimatedContainer(
       duration: const Duration(milliseconds: 220),
@@ -65,8 +73,10 @@ class _GlassCardState extends State<GlassCard> {
           end: Alignment.bottomRight,
           colors: isDark
               ? [
-                  AppColors.darkSurface.withOpacity(_hovered ? 0.95 : 0.85),
-                  AppColors.darkSurfaceVariant.withOpacity(0.65),
+                  // ✅ WEB FIX: fully opaque on web (no translucency
+                  // artifacts over the animated background)
+                  AppColors.darkSurface.withOpacity(kIsWeb ? 1.0 : (_hovered ? 0.95 : 0.85)),
+                  AppColors.darkSurfaceVariant.withOpacity(kIsWeb ? 0.9 : 0.65),
                 ]
               : [
                   AppColors.lightSurface.withOpacity(0.98),
@@ -96,7 +106,7 @@ class _GlassCardState extends State<GlassCard> {
             ),
         ],
       ),
-      child: widget.blur
+      child: useBlur
           ? ClipRRect(
               borderRadius: BorderRadius.circular(widget.borderRadius),
               child: BackdropFilter(
@@ -140,7 +150,9 @@ class _GlassCardState extends State<GlassCard> {
     }
 
     // ── Entrance animation ──
-    if (!widget.animate) return card;
+    // ✅ WEB FIX: skip flutter_animate entrance on web release to
+    // avoid animation-controller exceptions during fast rebuilds.
+    if (!widget.animate || kIsWeb) return card;
 
     return card.animate()
         .fadeIn(duration: 500.ms, curve: Curves.easeOutQuart)
@@ -210,8 +222,12 @@ class _GradientButtonState extends State<GradientButton>
         child: child,
       ),
       child: MouseRegion(
-        onEnter: (_) => _isEnabled ? setState(() => _hovered = true) : null,
-        onExit: (_) => setState(() => _hovered = false),
+        onEnter: (_) {
+          if (_isEnabled && mounted) setState(() => _hovered = true);
+        },
+        onExit: (_) {
+          if (mounted) setState(() => _hovered = false);
+        },
         cursor: _isEnabled
             ? SystemMouseCursors.click
             : SystemMouseCursors.basic,
@@ -380,7 +396,6 @@ class AnimatedStatCard extends StatelessWidget {
                   color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
                   letterSpacing: -1,
                   height: 1,
-                  fontFeatures: const [FontFeature.tabularFigures()],
                 ),
               ),
             ),
@@ -403,6 +418,8 @@ class AnimatedStatCard extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────
 // ⏳ ShimmerLoading — Theme-aware skeleton placeholder
+// ✅ WEB FIX: shimmer package uses blend modes that can crash
+//    Flutter Web release builds → simple pulse fallback on web.
 // ─────────────────────────────────────────────────────────────
 class ShimmerLoading extends StatelessWidget {
   final double width;
@@ -420,6 +437,15 @@ class ShimmerLoading extends StatelessWidget {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
+    if (kIsWeb) {
+      return _WebPulse(
+        width: width,
+        height: height,
+        borderRadius: borderRadius,
+        color: isDark ? AppColors.darkSurfaceVariant : Colors.grey.shade300,
+      );
+    }
+
     return Shimmer.fromColors(
       baseColor: isDark ? AppColors.darkSurfaceVariant : Colors.grey.shade300,
       highlightColor: isDark ? AppColors.darkBorder : Colors.grey.shade100,
@@ -430,6 +456,61 @@ class ShimmerLoading extends StatelessWidget {
         decoration: BoxDecoration(
           color: isDark ? AppColors.darkSurfaceVariant : Colors.grey.shade300,
           borderRadius: BorderRadius.circular(borderRadius),
+        ),
+      ),
+    );
+  }
+}
+
+/// Simple, GPU-cheap pulsing skeleton used on Flutter Web.
+class _WebPulse extends StatefulWidget {
+  final double width;
+  final double height;
+  final double borderRadius;
+  final Color color;
+
+  const _WebPulse({
+    required this.width,
+    required this.height,
+    required this.borderRadius,
+    required this.color,
+  });
+
+  @override
+  State<_WebPulse> createState() => _WebPulseState();
+}
+
+class _WebPulseState extends State<_WebPulse>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1200),
+    )..repeat(reverse: true);
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      opacity: Tween<double>(begin: 0.45, end: 0.9).animate(
+        CurvedAnimation(parent: _controller, curve: Curves.easeInOut),
+      ),
+      child: Container(
+        width: widget.width,
+        height: widget.height,
+        decoration: BoxDecoration(
+          color: widget.color,
+          borderRadius: BorderRadius.circular(widget.borderRadius),
         ),
       ),
     );
@@ -517,6 +598,9 @@ class PremiumChip extends StatelessWidget {
 
 // ─────────────────────────────────────────────────────────────
 // 🌊 AnimatedGradientBackground — Living ambient orbs
+// ✅ WEB FIX: on web we render STATIC orbs (no infinite
+//    AnimationController repaint) — this was silently killing
+//    the release build on Flutter Web.
 // ─────────────────────────────────────────────────────────────
 class AnimatedGradientBackground extends StatefulWidget {
   final Widget child;
@@ -538,7 +622,13 @@ class _AnimatedGradientBackgroundState extends State<AnimatedGradientBackground>
     _orbController = AnimationController(
       vsync: this,
       duration: const Duration(seconds: 9),
-    )..repeat(reverse: true);
+    );
+    // ✅ WEB FIX: do NOT repeat() on web (infinite repaint crash).
+    if (!kIsWeb) {
+      _orbController.repeat(reverse: true);
+    } else {
+      _orbController.value = 0.5; // static, pleasant position
+    }
   }
 
   @override

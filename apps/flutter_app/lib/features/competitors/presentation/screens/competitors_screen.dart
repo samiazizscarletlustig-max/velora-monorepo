@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:timeago/timeago.dart' as timeago; // ✅ FIXED: Removed extra quote
+import 'package:timeago/timeago.dart' as timeago;
 
 // ✅ استيراد شاشات التحليل
 import 'competitor_analysis_screen.dart';
@@ -59,9 +59,8 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
     debugPrint('🏗️ [CompetitorsScreen] Building... Loading: ${competitorsAsync.isLoading}, Error: ${competitorsAsync.hasError}');
 
     return Scaffold(
-      // ✅ CRITICAL FIX: Solid dark background instead of transparent
       backgroundColor: AppColors.darkSurface, 
-      body: SafeArea( // ✅ Added SafeArea for web browsers
+      body: SafeArea(
         child: AnimatedGradientBackground(
           child: RefreshIndicator(
             onRefresh: () async {
@@ -470,7 +469,7 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🎯 SORT MODES
+//  SORT MODES
 // ═══════════════════════════════════════════════════════════
 enum CompetitorSortMode {
   recentlyScanned('Recently scanned', Icons.schedule_rounded),
@@ -1035,7 +1034,7 @@ class _StatsLoading extends StatelessWidget {
 
 // ═══════════════════════════════════════════════════════════
 // 🏪 COMPETITORS LIST
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════
 class _CompetitorsList extends StatelessWidget {
   final List<Competitor> competitors;
   final void Function(Competitor) onDelete;
@@ -1629,7 +1628,7 @@ class _EmptyCompetitorsState extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🔍 NO RESULTS STATE
+//  NO RESULTS STATE
 // ═══════════════════════════════════════════════════════════
 class _NoResultsState extends StatelessWidget {
   final String query;
@@ -1745,7 +1744,7 @@ class _LoadingState extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
+// ══════════════════════════════════════════════════════════
 // ⚠️ ERROR STATE
 // ═══════════════════════════════════════════════════════════
 class _ErrorState extends StatelessWidget {
