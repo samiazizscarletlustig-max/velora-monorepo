@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_animate/flutter_animate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:timeago/timeago.dart' as timeago;
 
@@ -15,7 +14,9 @@ import '../../data/competitors_repository.dart';
 import '../providers/competitors_providers.dart';
 
 // ═══════════════════════════════════════════════════════════
-// 🎯 COMPETITORS SCREEN — AI PREMIUM EDITION (FULL FIXED)
+// 🎯 COMPETITORS SCREEN — AI PREMIUM EDITION (WEB-STABLE)
+// ✅ تم إزالة flutter_animate مؤقتاً لتشخيص انهيار الويب.
+//    كل التصميم الفاخر (زجاج، تدرجات، ظلال) محفوظ بالكامل.
 // ═══════════════════════════════════════════════════════════
 class CompetitorsScreen extends ConsumerStatefulWidget {
   const CompetitorsScreen({super.key});
@@ -28,13 +29,13 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
   final TextEditingController _searchCtrl = TextEditingController();
   final FocusNode _searchFocusNode = FocusNode();
   late Timer _refreshTimer;
-  
+
   CompetitorSortMode _sortMode = CompetitorSortMode.recentlyScanned;
-  
+
   @override
   void initState() {
     super.initState();
-    
+
     _refreshTimer = Timer.periodic(const Duration(seconds: 60), (timer) {
       if (mounted) {
         ref.invalidate(competitorsListProvider);
@@ -42,7 +43,7 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
       }
     });
   }
-  
+
   @override
   void dispose() {
     _refreshTimer.cancel();
@@ -59,7 +60,7 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
     debugPrint('🏗️ [CompetitorsScreen] Building... Loading: ${competitorsAsync.isLoading}, Error: ${competitorsAsync.hasError}');
 
     return Scaffold(
-      backgroundColor: AppColors.darkSurface, 
+      backgroundColor: AppColors.darkSurface,
       body: SafeArea(
         child: AnimatedGradientBackground(
           child: RefreshIndicator(
@@ -115,7 +116,7 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
               loading: () => const _StatsLoading(),
               error: (_, __) => const SizedBox.shrink(),
             ),
-          ).animate(delay: 100.ms).fadeIn(),
+          ),
         ),
         SliverToBoxAdapter(
           child: Padding(
@@ -129,7 +130,7 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
               onSearchChanged: (_) => setState(() {}),
               onSortChanged: (mode) => setState(() => _sortMode = mode),
             ),
-          ).animate(delay: 200.ms).fadeIn(),
+          ),
         ),
         if (competitors.isEmpty)
           SliverToBoxAdapter(
@@ -138,10 +139,7 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
               child: _EmptyCompetitorsState(
                 onAdd: () => _showPremiumAddDialog(context, ref),
               ),
-            ).animate(delay: 300.ms).fadeIn().scale(
-                  begin: const Offset(0.95, 0.95),
-                  end: const Offset(1, 1),
-                ),
+            ),
           )
         else if (_filterAndSort(competitors).isEmpty)
           SliverToBoxAdapter(
@@ -223,7 +221,7 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
       success: true,
       message: '🚀 AI Scan triggered for ${c.name}! Fetching data...',
     );
-    
+
     Future.delayed(const Duration(seconds: 2), () {
       if (mounted) {
         ref.invalidate(competitorsListProvider);
@@ -469,7 +467,7 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  SORT MODES
+// 🎯 SORT MODES
 // ═══════════════════════════════════════════════════════════
 enum CompetitorSortMode {
   recentlyScanned('Recently scanned', Icons.schedule_rounded),
@@ -551,7 +549,7 @@ class _ScreenHeader extends StatelessWidget {
           ]),
         ],
       ),
-    ).animate().fadeIn(duration: 500.ms).slideY(begin: -0.1);
+    );
   }
 }
 
@@ -998,7 +996,6 @@ class _AnimatedStatChip extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                     color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
                     letterSpacing: -0.5,
-                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
                 ),
               ),
@@ -1034,7 +1031,7 @@ class _StatsLoading extends StatelessWidget {
 
 // ═══════════════════════════════════════════════════════════
 // 🏪 COMPETITORS LIST
-// ══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 class _CompetitorsList extends StatelessWidget {
   final List<Competitor> competitors;
   final void Function(Competitor) onDelete;
@@ -1063,15 +1060,7 @@ class _CompetitorsList extends StatelessWidget {
               onTap: () => onTap(competitors[index]),
               onScan: () => onScan(competitors[index]),
               onViewTrends: () => onViewTrends(competitors[index]),
-            ).animate().fadeIn(
-                  duration: 500.ms,
-                  delay: Duration(milliseconds: 60 * index),
-                ).slideX(
-                  begin: -0.05,
-                  end: 0,
-                  duration: 600.ms,
-                  delay: Duration(milliseconds: 60 * index),
-                ),
+            ),
           );
         },
         childCount: competitors.length,
@@ -1271,8 +1260,8 @@ class _LastScanStat extends StatelessWidget {
                 letterSpacing: 0.3,
               )),
           Text(
-            competitor.lastScanAt != null 
-                ? timeago.format(competitor.lastScanAt!) 
+            competitor.lastScanAt != null
+                ? timeago.format(competitor.lastScanAt!)
                 : 'Not scanned yet',
             style: TextStyle(
               fontSize: 13,
@@ -1449,8 +1438,7 @@ class _Badge extends StatelessWidget {
           width: 6,
           height: 6,
           decoration: BoxDecoration(color: color, shape: BoxShape.circle),
-        ).animate(onPlay: (c) => c.repeat(period: 1500.ms))
-         .fadeIn().fadeOut(delay: 750.ms),
+        ),
         const SizedBox(width: 6),
         Text(label,
             style: TextStyle(
@@ -1506,8 +1494,8 @@ class _InlineStat extends StatelessWidget {
                 fontSize: 13,
                 fontWeight: FontWeight.w700,
                 color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
-                fontFeatures: const [FontFeature.tabularFigures()],
-              )),
+              ),
+          ),
         ],
       ),
     ]);
@@ -1564,11 +1552,7 @@ class _EmptyCompetitorsState extends StatelessWidget {
               ]),
               shape: BoxShape.circle,
             ),
-          ).animate(onPlay: (c) => c.repeat(period: 3.seconds))
-           .scale(begin: const Offset(0.95, 0.95), end: const Offset(1.05, 1.05),
-                  duration: 1500.ms).then()
-           .scale(begin: const Offset(1.05, 1.05), end: const Offset(0.95, 0.95),
-                  duration: 1500.ms),
+          ),
           Container(
             padding: const EdgeInsets.all(24),
             decoration: BoxDecoration(
@@ -1628,7 +1612,7 @@ class _EmptyCompetitorsState extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════
-//  NO RESULTS STATE
+// 🔍 NO RESULTS STATE
 // ═══════════════════════════════════════════════════════════
 class _NoResultsState extends StatelessWidget {
   final String query;
@@ -1735,7 +1719,7 @@ class _LoadingState extends StatelessWidget {
                 width: double.infinity,
                 height: 140,
                 borderRadius: 20,
-              ).animate(delay: Duration(milliseconds: 100 * i)).fadeIn(),
+              ),
             ),
           ),
         ],
@@ -1744,7 +1728,7 @@ class _LoadingState extends StatelessWidget {
   }
 }
 
-// ══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 // ⚠️ ERROR STATE
 // ═══════════════════════════════════════════════════════════
 class _ErrorState extends StatelessWidget {
@@ -2050,12 +2034,7 @@ class _PremiumAddDialogState extends ConsumerState<_PremiumAddDialog> {
           ),
         ),
       ),
-    ).animate().fadeIn(duration: 300.ms).scale(
-          begin: const Offset(0.9, 0.9),
-          end: const Offset(1, 1),
-          duration: 400.ms,
-          curve: Curves.easeOutBack,
-        );
+    );
   }
 }
 
