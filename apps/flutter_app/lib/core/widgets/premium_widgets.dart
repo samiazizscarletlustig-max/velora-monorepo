@@ -1,22 +1,14 @@
 import 'dart:ui';
 
-import 'package:flutter/foundation.dart'; // ✅ NEW: for kIsWeb
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:shimmer/shimmer.dart';
 
 import '../config/app_colors.dart';
 
-/// ═══════════════════════════════════════════════════════════
-/// 💎 VELORA PREMIUM DESIGN SYSTEM (WEB-SAFE EDITION)
-/// Production-ready, accessible, high-performance components.
-/// ✅ FIXED: BackdropFilter, Shimmer blend-modes and infinite
-///    orb repaints are now disabled/simplified on Flutter Web
-///    to prevent silent release-mode crashes (gray screen).
-/// ═══════════════════════════════════════════════════════════
-
 // ─────────────────────────────────────────────────────────────
-// 🎴 GlassCard — Glassmorphism card with hover & gradient ring
+// 🎴 GlassCard
 // ─────────────────────────────────────────────────────────────
 class GlassCard extends StatefulWidget {
   final Widget child;
@@ -56,12 +48,8 @@ class _GlassCardState extends State<GlassCard> {
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-
-    // ✅ WEB FIX: BackdropFilter crashes / blanks Flutter Web release
-    // builds. We only use real backdrop blur on native platforms.
     final bool useBlur = widget.blur && !kIsWeb;
 
-    // ── Inner card body ──
     Widget card = AnimatedContainer(
       duration: const Duration(milliseconds: 220),
       curve: Curves.easeOut,
@@ -73,8 +61,6 @@ class _GlassCardState extends State<GlassCard> {
           end: Alignment.bottomRight,
           colors: isDark
               ? [
-                  // ✅ WEB FIX: fully opaque on web (no translucency
-                  // artifacts over the animated background)
                   AppColors.darkSurface.withOpacity(kIsWeb ? 1.0 : (_hovered ? 0.95 : 0.85)),
                   AppColors.darkSurfaceVariant.withOpacity(kIsWeb ? 0.9 : 0.65),
                 ]
@@ -117,7 +103,6 @@ class _GlassCardState extends State<GlassCard> {
           : widget.child,
     );
 
-    // ── Gradient border ring (1.5px) ──
     if (widget.gradientBorder != null) {
       card = Container(
         decoration: BoxDecoration(
@@ -129,12 +114,10 @@ class _GlassCardState extends State<GlassCard> {
       );
     }
 
-    // ── Outer margin ──
     if (widget.margin != null) {
       card = Padding(padding: widget.margin!, child: card);
     }
 
-    // ── Interactivity (hover + tap) ──
     if (widget.onTap != null || widget.hoverable) {
       card = MouseRegion(
         onEnter: (_) => _setHover(true),
@@ -149,9 +132,6 @@ class _GlassCardState extends State<GlassCard> {
       );
     }
 
-    // ── Entrance animation ──
-    // ✅ WEB FIX: skip flutter_animate entrance on web release to
-    // avoid animation-controller exceptions during fast rebuilds.
     if (!widget.animate || kIsWeb) return card;
 
     return card.animate()
@@ -161,7 +141,7 @@ class _GlassCardState extends State<GlassCard> {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 🎨 GradientButton — Gradient CTA with press & hover physics
+// 🎨 GradientButton
 // ─────────────────────────────────────────────────────────────
 class GradientButton extends StatefulWidget {
   final String text;
@@ -293,7 +273,7 @@ class _GradientButtonState extends State<GradientButton>
 }
 
 // ─────────────────────────────────────────────────────────────
-// 📊 AnimatedStatCard — Animated counter + trend indicator
+// 📊 AnimatedStatCard
 // ─────────────────────────────────────────────────────────────
 class AnimatedStatCard extends StatelessWidget {
   final String label;
@@ -315,7 +295,6 @@ class AnimatedStatCard extends StatelessWidget {
     this.trendUp = true,
   });
 
-  /// 1200 → "1.2K" | 3400000 → "3.4M"
   static String _compact(int value) {
     if (value >= 1000000) {
       return '${(value / 1000000).toStringAsFixed(1)}M';
@@ -417,9 +396,7 @@ class AnimatedStatCard extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────
-// ⏳ ShimmerLoading — Theme-aware skeleton placeholder
-// ✅ WEB FIX: shimmer package uses blend modes that can crash
-//    Flutter Web release builds → simple pulse fallback on web.
+// ⏳ ShimmerLoading
 // ─────────────────────────────────────────────────────────────
 class ShimmerLoading extends StatelessWidget {
   final double width;
@@ -462,7 +439,6 @@ class ShimmerLoading extends StatelessWidget {
   }
 }
 
-/// Simple, GPU-cheap pulsing skeleton used on Flutter Web.
 class _WebPulse extends StatefulWidget {
   final double width;
   final double height;
@@ -518,7 +494,7 @@ class _WebPulseState extends State<_WebPulse>
 }
 
 // ─────────────────────────────────────────────────────────────
-// 🏷️ PremiumChip — Animated selectable chip
+// 🏷️ PremiumChip
 // ─────────────────────────────────────────────────────────────
 class PremiumChip extends StatelessWidget {
   final String label;
@@ -597,10 +573,7 @@ class PremiumChip extends StatelessWidget {
 }
 
 // ─────────────────────────────────────────────────────────────
-// 🌊 AnimatedGradientBackground — Living ambient orbs
-// ✅ WEB FIX: on web we render STATIC orbs (no infinite
-//    AnimationController repaint) — this was silently killing
-//    the release build on Flutter Web.
+// 🌊 AnimatedGradientBackground
 // ─────────────────────────────────────────────────────────────
 class AnimatedGradientBackground extends StatefulWidget {
   final Widget child;
@@ -623,11 +596,10 @@ class _AnimatedGradientBackgroundState extends State<AnimatedGradientBackground>
       vsync: this,
       duration: const Duration(seconds: 9),
     );
-    // ✅ WEB FIX: do NOT repeat() on web (infinite repaint crash).
     if (!kIsWeb) {
       _orbController.repeat(reverse: true);
     } else {
-      _orbController.value = 0.5; // static, pleasant position
+      _orbController.value = 0.5;
     }
   }
 
@@ -643,7 +615,6 @@ class _AnimatedGradientBackgroundState extends State<AnimatedGradientBackground>
 
     return Stack(
       children: [
-        // Ambient orbs (non-interactive layer)
         IgnorePointer(
           child: AnimatedBuilder(
             animation: _orbController,
@@ -680,7 +651,6 @@ class _AnimatedGradientBackgroundState extends State<AnimatedGradientBackground>
             ),
           ),
         ),
-        // Actual screen content
         widget.child,
       ],
     );
