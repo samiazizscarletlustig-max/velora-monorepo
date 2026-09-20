@@ -14,10 +14,9 @@ import '../../data/competitors_repository.dart';
 import '../providers/competitors_providers.dart';
 
 // ═══════════════════════════════════════════════════════════
-// 🎯 COMPETITORS SCREEN — AI PREMIUM EDITION (WEB-STABLE)
-// ✅ تم إزالة flutter_animate و AnimatedGradientBackground
-//    مؤقتاً لتشخيص انهيار الويب. كل التصميم الفاخر
-//    (زجاج، تدرجات، ظلال) محفوظ بالكامل.
+// 🎯 COMPETITORS SCREEN — AI PREMIUM EDITION
+// ✅ استعادة AnimatedGradientBackground (بريء)
+// ✅ إصلاح letterSpacing السالب (مشتبه رئيسي)
 // ═══════════════════════════════════════════════════════════
 class CompetitorsScreen extends ConsumerStatefulWidget {
   const CompetitorsScreen({super.key});
@@ -60,33 +59,35 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
 
     debugPrint('🏗️ [CompetitorsScreen] Building... Loading: ${competitorsAsync.isLoading}, Error: ${competitorsAsync.hasError}');
 
-    // ✅ إزالة AnimatedGradientBackground كاختبار تشخيصي
+    // ✅ استعادة AnimatedGradientBackground
     return Scaffold(
       backgroundColor: AppColors.darkSurface,
       body: SafeArea(
-        child: RefreshIndicator(
-          onRefresh: () async {
-            ref.invalidate(competitorsListProvider);
-            ref.invalidate(competitorsStatsProvider);
-            await Future.delayed(const Duration(milliseconds: 500));
-          },
-          color: AppColors.darkAccent,
-          backgroundColor: AppColors.darkSurface,
-          child: competitorsAsync.when(
-            loading: () => const Center(
-              child: CircularProgressIndicator(color: AppColors.darkAccent),
+        child: AnimatedGradientBackground(
+          child: RefreshIndicator(
+            onRefresh: () async {
+              ref.invalidate(competitorsListProvider);
+              ref.invalidate(competitorsStatsProvider);
+              await Future.delayed(const Duration(milliseconds: 500));
+            },
+            color: AppColors.darkAccent,
+            backgroundColor: AppColors.darkSurface,
+            child: competitorsAsync.when(
+              loading: () => const Center(
+                child: CircularProgressIndicator(color: AppColors.darkAccent),
+              ),
+              error: (e, stack) {
+                debugPrint('❌ [CompetitorsScreen] Error caught: $e');
+                return _ErrorState(
+                  error: e.toString(),
+                  onRetry: () => ref.invalidate(competitorsListProvider),
+                );
+              },
+              data: (competitors) {
+                debugPrint('✅ [CompetitorsScreen] Data loaded. Count: ${competitors.length}');
+                return _buildContent(context, competitors, statsAsync);
+              },
             ),
-            error: (e, stack) {
-              debugPrint('❌ [CompetitorsScreen] Error caught: $e');
-              return _ErrorState(
-                error: e.toString(),
-                onRetry: () => ref.invalidate(competitorsListProvider),
-              );
-            },
-            data: (competitors) {
-              debugPrint('✅ [CompetitorsScreen] Data loaded. Count: ${competitors.length}');
-              return _buildContent(context, competitors, statsAsync);
-            },
           ),
         ),
       ),
@@ -995,7 +996,8 @@ class _AnimatedStatChip extends StatelessWidget {
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
                     color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
-                    letterSpacing: -0.5,
+                    // ✅ تم إصلاح letterSpacing السالب (كان -0.5)
+                    letterSpacing: 0.0,
                   ),
                 ),
               ),
