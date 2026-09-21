@@ -42,7 +42,7 @@ class AuthRepository {
     try {
       await _client.auth.signInWithOAuth(
         OAuthProvider.google,
-        redirectTo: Uri.base.origin, // العودة إلى التطبيق بعد المصادقة
+        redirectTo: '${Uri.base.origin}/', // ✅ إضافة / للتطابق مع Supabase
       );
       return true;
     } catch (e) {

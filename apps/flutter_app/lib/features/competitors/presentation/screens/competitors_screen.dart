@@ -14,9 +14,9 @@ import '../../data/competitors_repository.dart';
 import '../providers/competitors_providers.dart';
 
 // ═══════════════════════════════════════════════════════════
-// 🎯 COMPETITORS SCREEN — AI PREMIUM EDITION
-// ✅ استعادة AnimatedGradientBackground (بريء)
-// ✅ إصلاح letterSpacing السالب (مشتبه رئيسي)
+// 🎯 COMPETITORS SCREEN — AI PREMIUM EDITION (FINAL FIX)
+// ✅ الإصلاح الجوهري: نسخ القائمة قبل الفرز
+//    (Unsupported operation: sort ← كان الجاني طوال الوقت)
 // ═══════════════════════════════════════════════════════════
 class CompetitorsScreen extends ConsumerStatefulWidget {
   const CompetitorsScreen({super.key});
@@ -59,7 +59,6 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
 
     debugPrint('🏗️ [CompetitorsScreen] Building... Loading: ${competitorsAsync.isLoading}, Error: ${competitorsAsync.hasError}');
 
-    // ✅ استعادة AnimatedGradientBackground
     return Scaffold(
       backgroundColor: AppColors.darkSurface,
       body: SafeArea(
@@ -167,11 +166,18 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
     );
   }
 
+  // ═════════════════════════════════════════════════════════
+  // ✅✅✅ الإصلاح الجوهري — الجاني كان هنا ✅✅✅
+  // القائمة القادمة من الـ Provider ثابتة (unmodifiable)،
+  // واستدعاء .sort() عليها مباشرة كان يرمي:
+  // Unsupported operation: sort
+  // الحل: ننسخها أولاً إلى قائمة قابلة للتعديل.
+  // ═════════════════════════════════════════════════════════
   List<Competitor> _filterAndSort(List<Competitor> competitors) {
     final query = _searchCtrl.text.trim().toLowerCase();
-    var filtered = competitors;
+    var filtered = List<Competitor>.of(competitors); // ✅ نسخة قابلة للتعديل
     if (query.isNotEmpty) {
-      filtered = competitors.where((c) {
+      filtered = filtered.where((c) {
         return c.name.toLowerCase().contains(query) ||
             (c.website ?? '').toLowerCase().contains(query) ||
             (c.domain ?? '').toLowerCase().contains(query);
@@ -996,7 +1002,6 @@ class _AnimatedStatChip extends StatelessWidget {
                     fontSize: 18,
                     fontWeight: FontWeight.w700,
                     color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
-                    // ✅ تم إصلاح letterSpacing السالب (كان -0.5)
                     letterSpacing: 0.0,
                   ),
                 ),

@@ -25,7 +25,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
     try {
       await Supabase.instance.client.auth.signInWithOAuth(
         OAuthProvider.google,
-        redirectTo: Uri.base.origin,
+        redirectTo: '${Uri.base.origin}/',  // ✅ إضافة / للتطابق مع Supabase
       );
     } catch (e) {
       if (mounted) {
