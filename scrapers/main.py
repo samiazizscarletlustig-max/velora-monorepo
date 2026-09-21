@@ -1,9 +1,12 @@
 """
  Velora — Advanced Competitive Market Intelligence Engine
 ═══════════════════════════════════════════════════════════════
-PRODUCTION VERSION — Cloud-Powered (Hugging Face)
+PRODUCTION VERSION — Cloud-Powered (Hugging Face Inference Providers)
+Multi-Provider Chain: Llama-3.3-70B → Qwen-2.5-72B → Fallback
 Fast, Reliable, and Ready for GitHub Actions
 Free Tier: 3 Competitors, Scan Every 24 Hours
+
+v2.0 — Deep Strategic Analysis (6 board-level insights per scan)
 """
 
 import os, sys, time, json, logging, argparse, re, inspect, asyncio, requests
@@ -74,7 +77,7 @@ class Colors:
 def print_banner():
     print(f"\n{Colors.HEADER}{'═'*80}{Colors.ENDC}")
     print(f"{Colors.OKBLUE} Velora — Competitive Market Intelligence Engine{Colors.ENDC}")
-    print(f"{Colors.OKCYAN}   Cloud-Powered by Hugging Face (Fast & Reliable){Colors.ENDC}")
+    print(f"{Colors.OKCYAN}   Cloud-Powered by Hugging Face (Multi-Provider Chain){Colors.ENDC}")
     print(f"{Colors.HEADER}{'═'*80}{Colors.ENDC}\n")
 
 def print_success(msg): print(f"{Colors.OKGREEN}✅ {msg}{Colors.ENDC}")
@@ -101,7 +104,7 @@ class Config:
         if not self.hf_api_key:
             print_error("Missing HF_API_KEY in .env")
             return False
-        print_info("☁️ Using Hugging Face Cloud API for Fast Analysis")
+        print_info("☁️ Using Hugging Face Cloud API (Multi-Provider Chain)")
         return True
 
 # ═══════════════════════════════════════════════════════════
@@ -114,15 +117,12 @@ class DatabaseManager:
     
     def get_pending_competitors(self, force_all: bool = False) -> List[Dict[str, Any]]:
         try:
-            # ✅ قراءة الحد الأقصى من متغير البيئة (افتراضي: 3)
             max_competitors = int(os.getenv("MAX_COMPETITORS", "3"))
             
             query = self.supabase.table("competitors").select("id, name, website, shopify_store, user_id")
             if not force_all:
-                # ✅ تغيير من 6 ساعات إلى 24 ساعة
                 threshold_str = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat().replace('+00:00', 'Z')
                 query = query.or_(f"last_scan_at.is.null,last_scan_at.lt.{threshold_str}")
-            # ✅ استخدام الحد الأقصى بدلاً من 50
             response = query.order("last_scan_at", desc=True, nullsfirst=True).limit(max_competitors).execute()
             self.logger.info(f"Found {len(response.data or [])} competitor(s) to scan (Max: {max_competitors})")
             return response.data or []
@@ -202,9 +202,33 @@ class DatabaseManager:
             return False
 
 # ═══════════════════════════════════════════════════════════
-#  ELITE MARKET INTELLIGENCE ENGINE (Cloud-Powered)
+# 🧠 ELITE MARKET INTELLIGENCE ENGINE (v2.0 — Multi-Provider)
+# ═══════════════════════════════════════════════════════════
+# سلسلة المزودين لضمان عدم انقطاع التحليل:
+# 1. Llama-3.3-70B-Instruct (الأقوى — عبر Fireworks/Together/SambaNova)
+# 2. Qwen-2.5-72B-Instruct (احتياطي سريع — عبر HF Router)
+# 3. القالب الاحتياطي (آخر مطاف)
 # ═══════════════════════════════════════════════════════════
 class MarketIntelligenceEngine:
+    # قائمة المزودين (الترتيب = الأولوية)
+    PROVIDERS = [
+        {
+            "name": "Llama-3.3-70B",
+            "model": "meta-llama/Llama-3.3-70B-Instruct",
+            "url": "https://router.huggingface.co/v1/chat/completions",
+        },
+        {
+            "name": "Qwen-2.5-72B",
+            "model": "Qwen/Qwen2.5-72B-Instruct",
+            "url": "https://router.huggingface.co/v1/chat/completions",
+        },
+        {
+            "name": "Mixtral-8x7B",
+            "model": "mistralai/Mixtral-8x7B-Instruct-v0.1",
+            "url": "https://router.huggingface.co/v1/chat/completions",
+        },
+    ]
+
     def __init__(self, competitor: Dict[str, Any], products: List[Dict[str, Any]]):
         self.competitor = competitor
         self.products = products
@@ -232,6 +256,16 @@ class MarketIntelligenceEngine:
         
         sorted_products = sorted(self.products, key=lambda x: x.get("current_price", 0), reverse=True)
         
+        # تحليل إضافي: كثافة الفئات (استنتاج من أسماء المنتجات إن وجدت)
+        title_keywords = {}
+        for p in self.products:
+            title = str(p.get("title", "")).lower()
+            for kw in ["shirt", "pant", "shoe", "dress", "jacket", "bag", "hat", "sock", "accessory"]:
+                if kw in title:
+                    title_keywords[kw] = title_keywords.get(kw, 0) + 1
+        
+        top_category = max(title_keywords.items(), key=lambda x: x[1])[0] if title_keywords else "general"
+        
         return {
             "competitor_name": self.name,
             "total_products_scanned": len(self.products),
@@ -241,7 +275,8 @@ class MarketIntelligenceEngine:
                 "median_price": round(median_price, 2),
                 "lowest_price": round(min(prices), 2),
                 "highest_price": round(max(prices), 2),
-                "price_spread": round(max(prices) - min(prices), 2)
+                "price_spread": round(max(prices) - min(prices), 2),
+                "price_coefficient_of_variation": round((sum((p - avg_price)**2 for p in prices)/len(prices))**0.5 / avg_price, 2) if avg_price > 0 else 0
             },
             "market_positioning": {
                 "budget_segment": {
@@ -260,50 +295,125 @@ class MarketIntelligenceEngine:
                     "threshold": f"Above ${round(premium_threshold, 2)}"
                 }
             },
+            "top_category_dominance": top_category,
             "strategic_anchors": {
                 "top_3_premium": [{"title": p.get("title", "")[:60], "price": round(p.get("current_price", 0), 2)} for p in sorted_products[:3]],
                 "top_3_entry": [{"title": p.get("title", "")[:60], "price": round(p.get("current_price", 0), 2)} for p in sorted_products[-3:]]
             }
         }
 
-    def _build_strategic_prompt(self, data: Dict[str, Any]) -> str:
-        system_prompt = """You are an Elite E-commerce Market Strategist with 20+ years of experience at McKinsey & BCG, specializing in competitive warfare and market domination.
+    def _build_strategic_prompt(self, data: Dict[str, Any]) -> tuple:
+        """إرجاع (system_prompt, user_prompt) المنفصلين — الصيغة الحديثة."""
+        
+        system_prompt = """You are an Elite E-commerce Market Strategist with 20+ years of experience at McKinsey, BCG, and Bain. You advise Fortune 500 brands on competitive warfare, pricing architecture, and category domination.
 
 ## YOUR MISSION
-Generate exactly 4 BOARD-READY, highly actionable strategic insights to help our business outmaneuver and dominate this competitor.
+Generate exactly 6 BOARD-READY, highly actionable strategic insights that would make a CEO act within 48 hours.
 
-## STRICT OUTPUT RULES:
-- Output ONLY valid JSON. No markdown, no conversational text outside the JSON object.
-- 'summary' MUST contain hard data from the report (exact prices, percentages, counts).
-- 'ai_recommendation' MUST be highly specific: include target price points, estimated profit margins (e.g., 45-60%), timelines (e.g., 60-90 days), and inventory targets.
-- 'severity' must be: "critical", "high", "medium", or "low"."""
+## UNCOMPROMISING STANDARDS:
+- Output ONLY valid JSON. No markdown, no commentary outside the JSON.
+- Every 'summary' MUST cite hard data (exact prices, counts, percentages) from the intelligence report.
+- Every 'ai_recommendation' MUST specify:
+  * A concrete price point or price range (e.g., "$89-99")
+  * An expected gross margin percentage (e.g., "55-65%")
+  * A timeline in days/weeks (e.g., "launch in 45 days")
+  * An inventory or unit target (e.g., "500 units initial run")
+  * A clear KPI for success (e.g., "capture 8% of mid-premium segment in 90 days")
+- 'severity' MUST be one of: "critical", "high", "medium", "low".
 
-        user_prompt = f"""## COMPETITOR INTELLIGENCE DATA
-{json.dumps(data, indent=2)}
-
-## REQUIRED INSIGHT CATEGORIES (Generate exactly 1 for each):
-1. "pricing_warfare": How they use price to capture share, and how we can undercut or out-value them.
-2. "product_gap": A specific missing category, price point, or feature in their portfolio that we can exploit.
-3. "competitive_threat": Their strongest current advantage based on this data, and how we neutralize it.
-4. "counter_move": A specific, aggressive go-to-market action we should take immediately.
-
-## REQUIRED JSON FORMAT:
-{{
+## OUTPUT SCHEMA:
+{
   "insights": [
-    {{
-      "type": "product_gap",
-      "title": "Massive Void in Mid-Tier Premium Segment",
-      "summary": "Competitor has 0 products (0%) in the $80-$120 range, while 65% of their catalog is under $40. They are abandoning high-margin customers.",
-      "ai_recommendation": "Launch a premium capsule collection priced at $99. Target a 60% gross margin. Execute a 60-day influencer campaign. Initial inventory: 500 units.",
-      "severity": "high"
-    }}
+    {
+      "type": "pricing_warfare" | "product_gap" | "competitive_threat" | "counter_move" | "market_timing" | "brand_positioning",
+      "title": "Board-level headline (under 80 chars)",
+      "summary": "Data-backed situation analysis (80-150 words)",
+      "ai_recommendation": "Specific action plan with numbers (80-150 words)",
+      "severity": "critical|high|medium|low"
+    }
   ]
-}}"""
-        # ✅ تنسيق خاص ومضمون لنموذج Phi-3
-        return f"<|user|>\n{system_prompt}\n\n{user_prompt}<|end|>\n<|assistant|>\n"
+}"""
+
+        user_prompt = f"""## COMPETITOR INTELLIGENCE REPORT — {data.get('competitor_name')}
+Scan Date: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}
+
+{json.dumps(data, indent=2, ensure_ascii=False)}
+
+## YOUR DELIVERABLE — 6 STRATEGIC INSIGHTS (one per type):
+1. "pricing_warfare" — How they architect price tiers, where their margin is richest, and where we can surgically undercut.
+2. "product_gap" — A specific missing category, orphan price point, or feature void we can exploit with a new SKU.
+3. "competitive_threat" — Their single strongest moat based on this data, and a concrete plan to neutralize it in 90 days.
+4. "counter_move" — An aggressive, asymmetric go-to-market action we should launch in the next 45 days.
+5. "market_timing" — Seasonal or cyclical timing insight: when to attack, when to hold, when to bundle.
+6. "brand_positioning" — Emotional/brand territory they own vs. whitespace we can claim.
+
+Return ONLY the JSON object. No preambles, no signatures."""
+
+        return system_prompt, user_prompt
+
+    def _call_ai_provider(self, system_prompt: str, user_prompt: str) -> Optional[str]:
+        """يُجرّب المزودين بالترتيب حتى ينجح أحدهم."""
+        for i, provider in enumerate(self.PROVIDERS):
+            try:
+                print(f"\n☁️ [{i+1}/{len(self.PROVIDERS)}] Calling {provider['name']}...")
+                
+                response = requests.post(
+                    provider["url"],
+                    headers={
+                        "Authorization": f"Bearer {self.hf_api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json={
+                        "model": provider["model"],
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_prompt}
+                        ],
+                        "max_tokens": 2500,
+                        "temperature": 0.3,
+                        "top_p": 0.9,
+                    },
+                    timeout=120
+                )
+                
+                if response.status_code != 200:
+                    self.logger.warning(f"  ↳ {provider['name']} returned {response.status_code}: {response.text[:200]}")
+                    continue
+                
+                data = response.json()
+                # OpenAI-compatible format
+                if "choices" in data and len(data["choices"]) > 0:
+                    text = data["choices"][0].get("message", {}).get("content", "")
+                    if text:
+                        print_success(f"  ↳ {provider['name']} responded successfully ({len(text)} chars)")
+                        return text
+                
+                # Legacy HF format
+                if isinstance(data, list) and len(data) > 0:
+                    text = data[0].get("generated_text", "")
+                    if text:
+                        print_success(f"  ↳ {provider['name']} responded (legacy)")
+                        return text
+                
+                self.logger.warning(f"  ↳ {provider['name']} returned empty/unexpected format")
+                continue
+                
+            except requests.exceptions.ConnectionError as e:
+                self.logger.warning(f"  ↳ {provider['name']} connection failed: {str(e)[:100]}")
+                continue
+            except requests.exceptions.Timeout:
+                self.logger.warning(f"  ↳ {provider['name']} timed out")
+                continue
+            except Exception as e:
+                self.logger.warning(f"  ↳ {provider['name']} error: {str(e)[:100]}")
+                continue
+        
+        # كل المزودين فشلوا
+        return None
 
     def _parse_ai_response(self, text: str) -> List[Dict[str, Any]]:
         try:
+            # تنظيف الرد من markdown fences
             text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.IGNORECASE).strip()
             text = re.sub(r'\s*```$', '', text).strip()
             
@@ -312,22 +422,33 @@ Generate exactly 4 BOARD-READY, highly actionable strategic insights to help our
             if start_idx != -1 and end_idx != -1:
                 text = text[start_idx:end_idx+1]
             
-            text = text.strip()
-            ai_response = json.loads(text)
+            ai_response = json.loads(text.strip())
             insights_data = ai_response.get('insights', [])
             
             if not insights_data:
+                self.logger.warning("⚠️ AI returned empty insights array — using fallback")
                 return self._generate_fallback_insights()
             
             insights = []
-            for i, insight in enumerate(insights_data[:4]):
+            valid_types = {"pricing_warfare", "product_gap", "competitive_threat", 
+                          "counter_move", "market_timing", "brand_positioning"}
+            
+            for i, insight in enumerate(insights_data[:6]):
+                insight_type = str(insight.get('type', 'general')).lower()
+                if insight_type not in valid_types:
+                    insight_type = "general"
+                
+                severity = str(insight.get('severity', 'medium')).lower()
+                if severity not in {"critical", "high", "medium", "low"}:
+                    severity = "medium"
+                
                 insights.append({
                     "competitor_id": self.competitor['id'],
-                    "type": insight.get('type', 'general').lower(),
-                    "title": insight.get('title', f'Strategic Insight #{i+1}').strip(),
-                    "summary": insight.get('summary', '').strip(),
-                    "ai_recommendation": insight.get('ai_recommendation', '').strip(),
-                    "severity": insight.get('severity', 'medium').lower(),
+                    "type": insight_type,
+                    "title": str(insight.get('title', f'Strategic Insight #{i+1}')).strip()[:200],
+                    "summary": str(insight.get('summary', '')).strip(),
+                    "ai_recommendation": str(insight.get('ai_recommendation', '')).strip(),
+                    "severity": severity,
                     "created_at": datetime.now(timezone.utc).isoformat()
                 })
             
@@ -339,7 +460,7 @@ Generate exactly 4 BOARD-READY, highly actionable strategic insights to help our
             self.logger.error(f"🔍 Raw AI Response snippet: '{text[:400]}...'")
             return self._generate_fallback_insights()
         except Exception as e:
-            self.logger.error(f"️ Error parsing response: {e}")
+            self.logger.error(f"⚠️ Error parsing response: {e}")
             return self._generate_fallback_insights()
 
     @rate_limit(calls_per_minute=10)
@@ -351,50 +472,22 @@ Generate exactly 4 BOARD-READY, highly actionable strategic insights to help our
             if "error" in analysis_data:
                 return self._generate_fallback_insights()
             
-            prompt = self._build_strategic_prompt(analysis_data)
+            system_prompt, user_prompt = self._build_strategic_prompt(analysis_data)
             
-            print(f"\n☁️ Generating elite strategic counter-moves with Hugging Face (Phi-3-mini)...")
-            print("⏳ Deep market analysis in progress (this may take 30-60 seconds)...")
+            print(f"\n🧠 Generating board-level strategic counter-moves...")
+            print("⏳ Deep market analysis in progress (60-120 seconds)...")
             
-            # ✅ تم التغيير إلى نموذج Phi-3-mini لأنه الأسرع والأكثر استقراراً على الخطة المجانية
-            response = requests.post(
-                "https://api-inference.huggingface.co/models/microsoft/Phi-3-mini-4k-instruct",
-                headers={
-                    "Authorization": f"Bearer {self.hf_api_key}",
-                    "Content-Type": "application/json"
-                },
-                json={
-                    "inputs": prompt,
-                    "parameters": {
-                        "max_new_tokens": 1500,
-                        "temperature": 0.4,
-                        "top_p": 0.9,
-                        "return_full_text": False,
-                        "do_sample": True
-                    }
-                },
-                timeout=120
-            )
+            ai_text = self._call_ai_provider(system_prompt, user_prompt)
             
-            if response.status_code != 200:
-                raise Exception(f"Hugging Face API Error {response.status_code}: {response.text}")
-            
-            hf_response = response.json()
-            if isinstance(hf_response, list) and len(hf_response) > 0:
-                text = hf_response[0].get("generated_text", "")
+            if ai_text:
+                return self._parse_ai_response(ai_text)
             else:
-                text = hf_response.get("generated_text", "")
+                self.logger.warning("⚠️ All AI providers failed — using fallback template")
+                return self._generate_fallback_insights()
                 
-            return self._parse_ai_response(text)
-            
-        except requests.exceptions.ConnectionError as e:
-            self.logger.error(f" Cannot connect to Hugging Face API. Details: {e}")
-            return self._generate_fallback_insights()
-        except requests.exceptions.Timeout:
-            self.logger.error("❌ Hugging Face API request timed out.")
-            return self._generate_fallback_insights()
         except Exception as e:
             self.logger.error(f"❌ AI generation failed: {e}")
+            self.logger.exception("Full traceback:")
             return self._generate_fallback_insights()
 
     def _generate_fallback_insights(self) -> List[Dict[str, Any]]:
@@ -408,8 +501,8 @@ Generate exactly 4 BOARD-READY, highly actionable strategic insights to help our
                 "competitor_id": self.competitor['id'],
                 "type": "pricing_warfare",
                 "title": f"{self.name} — Baseline Pricing Intelligence",
-                "summary": f"Average market price: ${avg_price:.2f} across {len(prices)} products.",
-                "ai_recommendation": "Position core competing products within 10% of this average to maintain market parity.",
+                "summary": f"Average market price: ${avg_price:.2f} across {len(prices)} products. Range: ${min(prices):.2f} to ${max(prices):.2f}.",
+                "ai_recommendation": "Position core competing products within 10% of this average to maintain market parity. Target 50-60% gross margin on premium SKUs.",
                 "severity": "medium",
                 "created_at": timestamp
             })
