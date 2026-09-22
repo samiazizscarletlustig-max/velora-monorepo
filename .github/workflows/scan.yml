@@ -2,8 +2,9 @@ name: 🚀 Velora Auto-Scan
 
 on:
   schedule:
-    # كل 24 ساعة (الساعة 00:00 UTC يومياً)
-    - cron: '0 0 * * *'
+    # كل 3 ساعات — والمنطق داخل الكود يقرر من يُمسح حسب خطة كل مستخدم
+    # (Free: كل 24h، Pro: كل 6h، Pro Plus: كل 3h، Enterprise: كل 1h)
+    - cron: '0 */3 * * *'
   workflow_dispatch:  # تشغيل يدوي من GitHub
   
 jobs:
@@ -34,11 +35,10 @@ jobs:
           echo "USE_LOCAL_OLLAMA=false" >> .env
           echo "SCAN_INTERVAL=86400" >> .env
           echo "MAX_RETRIES=3" >> .env
-          echo "MAX_COMPETITORS=3" >> .env
       
-      - name: 🚀 Run scan
+      - name: 🚀 Run scan (Tier-Aware)
         working-directory: ./scrapers
-        run: python main.py --force-all
+        run: python main.py
       
       - name: 📤 Upload logs (if failed)
         if: failure()

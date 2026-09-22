@@ -1,20 +1,24 @@
 """
  Velora — Advanced Competitive Market Intelligence Engine
 ═══════════════════════════════════════════════════════════════
-PRODUCTION VERSION — Cloud-Powered (Hugging Face Inference Providers)
-Multi-Provider Chain: Llama-3.3-70B → Qwen-2.5-72B → Fallback
-Fast, Reliable, and Ready for GitHub Actions
-Free Tier: 3 Competitors, Scan Every 24 Hours
+PRODUCTION VERSION v3.0 — "Executive Edition"
 
-v2.0 — Deep Strategic Analysis (6 board-level insights per scan)
+☁️ Cloud-Powered (Hugging Face Router — Multi-Provider Chain)
+🏆 Tier-Aware Scanning (Free / Pro / Pro Plus / Enterprise)
+🧠 Deep Strategic Analysis (8 insights + Executive Summary + Scorecard)
+📈 Price History Tracking (for trend comparison)
+
+Architecture:
+  [GitHub Actions] → [Scraper] → [AI Analysis] → [Supabase] → [Flutter App]
 """
 
-import os, sys, time, json, logging, argparse, re, inspect, asyncio, requests
+import os, sys, time, json, logging, argparse, re, inspect, asyncio, requests, statistics
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 from urllib.parse import urlparse
-from typing import List, Dict, Optional, Any
+from typing import List, Dict, Optional, Any, Tuple
 from functools import wraps
+from collections import Counter
 
 SCRAPERS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRAPERS_DIR))
@@ -28,6 +32,16 @@ from platforms.shopify_scraper import scrape_shopify
 from platforms.woocommerce_scraper import scrape_woocommerce
 from platforms.generic_scraper import scrape_generic
 from core.trend_analyzer import TrendAnalyzer
+
+# ═══════════════════════════════════════════════════════════
+# 🏆 TIER SYSTEM — حدود كل خطة اشتراك
+# ═══════════════════════════════════════════════════════════
+TIER_LIMITS = {
+    'free':       {'max_competitors': 3,    'scan_interval_hours': 24, 'max_products': 300,  'ai_depth': 'standard'},
+    'pro':        {'max_competitors': 10,   'scan_interval_hours': 6,  'max_products': 1000, 'ai_depth': 'advanced'},
+    'pro_plus':   {'max_competitors': 25,   'scan_interval_hours': 3,  'max_products': 2500, 'ai_depth': 'executive'},
+    'enterprise': {'max_competitors': 9999, 'scan_interval_hours': 1,  'max_products': 9999, 'ai_depth': 'executive'},
+}
 
 # ═══════════════════════════════════════════════════════════
 # 🛡️ Rate Limiting (Protects API Limits)
@@ -48,7 +62,7 @@ def rate_limit(calls_per_minute: int = 10):
     return decorator
 
 # ═══════════════════════════════════════════════════════════
-#  Logging Configuration
+# 📝 Logging Configuration
 # ═════════════════════════════════════════════════════════
 logging.basicConfig(
     level=logging.INFO,
@@ -62,7 +76,7 @@ logging.basicConfig(
 logger = logging.getLogger('VeloraScraper')
 
 # ═══════════════════════════════════════════════════════════
-# 🎨 Color Codes
+# 🎨 Color Codes (Terminal Output)
 # ══════════════════════════════════════════════════════════
 class Colors:
     HEADER = '\033[95m'
@@ -76,8 +90,8 @@ class Colors:
 
 def print_banner():
     print(f"\n{Colors.HEADER}{'═'*80}{Colors.ENDC}")
-    print(f"{Colors.OKBLUE} Velora — Competitive Market Intelligence Engine{Colors.ENDC}")
-    print(f"{Colors.OKCYAN}   Cloud-Powered by Hugging Face (Multi-Provider Chain){Colors.ENDC}")
+    print(f"{Colors.OKBLUE} Velora v3.0 — Executive Market Intelligence Engine{Colors.ENDC}")
+    print(f"{Colors.OKCYAN}   Cloud-Powered (Multi-Provider) • Tier-Aware • Deep Analysis{Colors.ENDC}")
     print(f"{Colors.HEADER}{'═'*80}{Colors.ENDC}\n")
 
 def print_success(msg): print(f"{Colors.OKGREEN}✅ {msg}{Colors.ENDC}")
@@ -104,11 +118,11 @@ class Config:
         if not self.hf_api_key:
             print_error("Missing HF_API_KEY in .env")
             return False
-        print_info("☁️ Using Hugging Face Cloud API (Multi-Provider Chain)")
+        print_info("☁️ Using Hugging Face Router (Multi-Provider Chain)")
         return True
 
 # ═══════════════════════════════════════════════════════════
-# 🗄️ Database Manager
+# 🗄️ Database Manager (Tier-Aware)
 # ══════════════════════════════════════════════════════════
 class DatabaseManager:
     def __init__(self, supabase: Client):
@@ -116,16 +130,63 @@ class DatabaseManager:
         self.logger = logging.getLogger('DatabaseManager')
     
     def get_pending_competitors(self, force_all: bool = False) -> List[Dict[str, Any]]:
+        """
+        يجلب المنافسين المستحقين للمسح مع مراعاة:
+        1. خطة كل مستخدم (tier) — عدد المنافسين المسموح
+        2. جدولة المسح حسب الخطة (free=24h, pro=6h, ...)
+        """
         try:
-            max_competitors = int(os.getenv("MAX_COMPETITORS", "3"))
-            
-            query = self.supabase.table("competitors").select("id, name, website, shopify_store, user_id")
-            if not force_all:
-                threshold_str = (datetime.now(timezone.utc) - timedelta(hours=24)).isoformat().replace('+00:00', 'Z')
-                query = query.or_(f"last_scan_at.is.null,last_scan_at.lt.{threshold_str}")
-            response = query.order("last_scan_at", desc=True, nullsfirst=True).limit(max_competitors).execute()
-            self.logger.info(f"Found {len(response.data or [])} competitor(s) to scan (Max: {max_competitors})")
-            return response.data or []
+            response = (
+                self.supabase.table("competitors")
+                .select("id, name, website, shopify_store, user_id, last_scan_at")
+                .order("last_scan_at", desc=True, nullsfirst=True)
+                .limit(500)
+                .execute()
+            )
+            rows = response.data or []
+            if not rows:
+                self.logger.info("Found 0 competitor(s) to scan")
+                return []
+
+            # جلب خطة كل مالك دفعة واحدة (كفاءة)
+            user_ids = list({r.get('user_id') for r in rows if r.get('user_id')})
+            tiers = {}
+            if user_ids:
+                ures = self.supabase.table("users").select("id, tier").in_("id", user_ids).execute()
+                tiers = {u['id']: (u.get('tier') or 'free') for u in (ures.data or [])}
+
+            now = datetime.now(timezone.utc)
+            pending = []
+            per_user = {}
+
+            for row in rows:
+                uid = row.get('user_id')
+                tier = tiers.get(uid, 'free')
+                limits = TIER_LIMITS.get(tier, TIER_LIMITS['free'])
+
+                # حدّ عدد المنافسين لكل خطة
+                per_user[uid] = per_user.get(uid, 0) + 1
+                if per_user[uid] > limits['max_competitors']:
+                    self.logger.info(f"⏭️ Skip {row.get('name')}: tier '{tier}' cap reached")
+                    continue
+
+                # جدولة المسح حسب الخطة
+                if not force_all:
+                    last = row.get('last_scan_at')
+                    if last:
+                        last_dt = datetime.fromisoformat(last.replace('Z', '+00:00'))
+                        if last_dt.tzinfo is None:
+                            last_dt = last_dt.replace(tzinfo=timezone.utc)
+                        if now - last_dt < timedelta(hours=limits['scan_interval_hours']):
+                            continue  # لم يحن دور هذه الخطة بعد
+
+                # إرفاق الـ tier مع المنافس للاستخدام لاحقاً
+                row['_tier'] = tier
+                row['_limits'] = limits
+                pending.append(row)
+
+            self.logger.info(f"Found {len(pending)} competitor(s) to scan (tier-aware)")
+            return pending
         except Exception as e:
             self.logger.error(f"Failed to fetch competitors: {e}")
             return []
@@ -160,8 +221,66 @@ class DatabaseManager:
             self.logger.error(f"Failed to upsert products: {e}")
             return 0
     
+    def save_price_history(self, products: List[Dict[str, Any]], competitor_id: str) -> int:
+        """يحفظ الأسعار في جدول price_history للتحليل المستقبلي (ميزة Pro Plus)"""
+        try:
+            now = datetime.now(timezone.utc).isoformat()
+            history_rows = []
+            for p in products:
+                price = p.get("current_price")
+                if price and price > 0:
+                    history_rows.append({
+                        "competitor_id": competitor_id,
+                        "product_url": str(p.get("product_url", ""))[:500],
+                        "product_title": str(p.get("title", ""))[:200],
+                        "price": float(price),
+                        "recorded_at": now
+                    })
+            
+            if not history_rows:
+                return 0
+            
+            # محاولة الإدراج — إذا لم يكن الجدول موجوداً، نخطئ بصمت
+            try:
+                self.supabase.table("price_history").insert(history_rows).execute()
+                self.logger.info(f"Saved {len(history_rows)} price history records")
+                return len(history_rows)
+            except Exception as e:
+                self.logger.warning(f"price_history table may not exist yet: {e}")
+                return 0
+        except Exception as e:
+            self.logger.error(f"Failed to save price history: {e}")
+            return 0
+    
+    def get_previous_scan_data(self, competitor_id: str) -> Optional[Dict[str, Any]]:
+        """يجلب بيانات المسح السابق للمقارنة (ميزة Pro)"""
+        try:
+            # جلب آخر insight سابق
+            response = (
+                self.supabase.table("ai_insights")
+                .select("*")
+                .eq("competitor_id", competitor_id)
+                .order("created_at", desc=True)
+                .limit(8)
+                .execute()
+            )
+            if not response.data:
+                return None
+            return {"previous_insights": response.data}
+        except Exception as e:
+            self.logger.warning(f"Could not fetch previous scan: {e}")
+            return None
+    
     def save_insights(self, insights: List[Dict[str, Any]]) -> bool:
         try:
+            # حذف الـ insights القديمة لنفس المنافس قبل الإدراج (تجديد)
+            if insights:
+                comp_id = insights[0].get('competitor_id')
+                if comp_id:
+                    try:
+                        self.supabase.table("ai_insights").delete().eq("competitor_id", comp_id).eq("type", "trend").execute()
+                    except: pass
+            
             self.supabase.table("ai_insights").insert(insights).execute()
             self.logger.info(f"Saved {len(insights)} AI insights")
             return True
@@ -202,15 +321,22 @@ class DatabaseManager:
             return False
 
 # ═══════════════════════════════════════════════════════════
-# 🧠 ELITE MARKET INTELLIGENCE ENGINE (v2.0 — Multi-Provider)
-# ═══════════════════════════════════════════════════════════
-# سلسلة المزودين لضمان عدم انقطاع التحليل:
-# 1. Llama-3.3-70B-Instruct (الأقوى — عبر Fireworks/Together/SambaNova)
-# 2. Qwen-2.5-72B-Instruct (احتياطي سريع — عبر HF Router)
-# 3. القالب الاحتياطي (آخر مطاف)
+# 🧠 ELITE MARKET INTELLIGENCE ENGINE (v3.0 — Executive)
 # ═══════════════════════════════════════════════════════════
 class MarketIntelligenceEngine:
-    # قائمة المزودين (الترتيب = الأولوية)
+    """
+    محرك الذكاء الاستراتيجى — سلسلة مزودين + تحليل عميق.
+    
+    التحسينات في v3.0:
+    - 8 رؤى استراتيجية (بدل 6)
+    - Executive Summary (ملخص تنفيذي)
+    - Quick Wins (3 إجراءات سريعة)
+    - Competitive Scorecard (تقييم المنافس من 10)
+    - تحليل التنوع (Shannon Index)
+    - كشف الكلمات المفتاحية والعروض
+    - مقارنة مع المسح السابق
+    """
+    
     PROVIDERS = [
         {
             "name": "Llama-3.3-70B",
@@ -229,10 +355,23 @@ class MarketIntelligenceEngine:
         },
     ]
 
-    def __init__(self, competitor: Dict[str, Any], products: List[Dict[str, Any]]):
+    # الكلمات المفتاحية للكشف عن الفئات والعروض
+    CATEGORY_KEYWORDS = [
+        "shirt", "pant", "shoe", "dress", "jacket", "bag", "hat", "sock", 
+        "accessory", "sweater", "hoodie", "short", "skirt", "coat", "boot",
+        "sandal", "sneaker", "scarf", "belt", "watch", "jewelry"
+    ]
+    
+    PROMOTION_KEYWORDS = ["sale", "off", "discount", "limited", "new", "bestseller", "clearance"]
+
+    def __init__(self, competitor: Dict[str, Any], products: List[Dict[str, Any]], 
+                 previous_scan: Optional[Dict[str, Any]] = None):
         self.competitor = competitor
         self.products = products
+        self.previous_scan = previous_scan
         self.name = competitor.get('name', 'Unknown')
+        self.tier = competitor.get('_tier', 'free')
+        self.limits = competitor.get('_limits', TIER_LIMITS['free'])
         self.logger = logging.getLogger('MarketIntelligence')
         self.hf_api_key = os.getenv("HF_API_KEY")
 
@@ -240,12 +379,19 @@ class MarketIntelligenceEngine:
         return self._generate_advanced_insights()
 
     def _analyze_competitor_data(self) -> Dict[str, Any]:
-        prices = [p.get("current_price", 0) for p in self.products if p.get("current_price")]
+        """تحليل كمي شامل للبيانات — يُرسل كسياق للـ AI"""
+        prices = [p.get("current_price", 0) for p in self.products if p.get("current_price") and p.get("current_price") > 0]
+        
         if not prices:
             return {"error": "No pricing data available"}
         
+        # إحصائيات الأسعار الأساسية
         avg_price = sum(prices) / len(prices)
-        median_price = sorted(prices)[len(prices)//2]
+        median_price = statistics.median(prices)
+        try:
+            stdev_price = statistics.stdev(prices) if len(prices) > 1 else 0
+        except:
+            stdev_price = 0
         
         budget_threshold = avg_price * 0.6
         premium_threshold = avg_price * 1.5
@@ -256,27 +402,57 @@ class MarketIntelligenceEngine:
         
         sorted_products = sorted(self.products, key=lambda x: x.get("current_price", 0), reverse=True)
         
-        # تحليل إضافي: كثافة الفئات (استنتاج من أسماء المنتجات إن وجدت)
-        title_keywords = {}
+        # تحليل الكلمات المفتاحية (الفئات)
+        category_counts = Counter()
+        promotion_count = 0
+        
         for p in self.products:
             title = str(p.get("title", "")).lower()
-            for kw in ["shirt", "pant", "shoe", "dress", "jacket", "bag", "hat", "sock", "accessory"]:
+            for kw in self.CATEGORY_KEYWORDS:
                 if kw in title:
-                    title_keywords[kw] = title_keywords.get(kw, 0) + 1
+                    category_counts[kw] += 1
+            for promo in self.PROMOTION_KEYWORDS:
+                if promo in title:
+                    promotion_count += 1
+                    break
         
-        top_category = max(title_keywords.items(), key=lambda x: x[1])[0] if title_keywords else "general"
+        top_categories = category_counts.most_common(5)
+        diversity_score = len(category_counts) / max(len(self.CATEGORY_KEYWORDS), 1) * 100
+        
+        # كشف الفجوات السعرية (Price Gaps)
+        price_gaps = []
+        sorted_prices = sorted(prices)
+        for i in range(len(sorted_prices) - 1):
+            gap = sorted_prices[i+1] - sorted_prices[i]
+            if gap > avg_price * 0.3:  # فجوة كبيرة
+                price_gaps.append({
+                    "from": round(sorted_prices[i], 2),
+                    "to": round(sorted_prices[i+1], 2),
+                    "size": round(gap, 2)
+                })
+        
+        # مقارنة مع المسح السابق (إن وجد)
+        comparison = None
+        if self.previous_scan and self.previous_scan.get("previous_insights"):
+            comparison = {
+                "previous_scan_available": True,
+                "previous_insights_count": len(self.previous_scan["previous_insights"])
+            }
         
         return {
             "competitor_name": self.name,
+            "scan_date": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC'),
+            "tier_context": self.tier,
             "total_products_scanned": len(self.products),
             "products_with_pricing": len(prices),
             "pricing_intelligence": {
                 "average_price": round(avg_price, 2),
                 "median_price": round(median_price, 2),
+                "standard_deviation": round(stdev_price, 2),
                 "lowest_price": round(min(prices), 2),
                 "highest_price": round(max(prices), 2),
                 "price_spread": round(max(prices) - min(prices), 2),
-                "price_coefficient_of_variation": round((sum((p - avg_price)**2 for p in prices)/len(prices))**0.5 / avg_price, 2) if avg_price > 0 else 0
+                "price_coefficient_of_variation": round(stdev_price / avg_price, 2) if avg_price > 0 else 0
             },
             "market_positioning": {
                 "budget_segment": {
@@ -295,57 +471,84 @@ class MarketIntelligenceEngine:
                     "threshold": f"Above ${round(premium_threshold, 2)}"
                 }
             },
-            "top_category_dominance": top_category,
+            "category_intelligence": {
+                "top_5_categories": [{"category": k, "count": v} for k, v in top_categories],
+                "diversity_score_percent": round(diversity_score, 1),
+                "unique_categories_detected": len(category_counts)
+            },
+            "promotion_signals": {
+                "products_with_promo_keywords": promotion_count,
+                "promo_percentage": round(promotion_count / len(self.products) * 100, 1) if self.products else 0
+            },
+            "price_gaps": price_gaps[:5],  # أكبر 5 فجوات
             "strategic_anchors": {
                 "top_3_premium": [{"title": p.get("title", "")[:60], "price": round(p.get("current_price", 0), 2)} for p in sorted_products[:3]],
-                "top_3_entry": [{"title": p.get("title", "")[:60], "price": round(p.get("current_price", 0), 2)} for p in sorted_products[-3:]]
-            }
+                "top_3_entry": [{"title": p.get("title", "")[:60], "price": round(p.get("current_price", 0), 2)} for p in sorted_products[-3:] if p.get("current_price")]
+            },
+            "comparison_with_previous_scan": comparison
         }
 
-    def _build_strategic_prompt(self, data: Dict[str, Any]) -> tuple:
-        """إرجاع (system_prompt, user_prompt) المنفصلين — الصيغة الحديثة."""
+    def _build_strategic_prompt(self, data: Dict[str, Any]) -> Tuple[str, str]:
+        """بناء Prompt احترافي — Executive Edition"""
         
-        system_prompt = """You are an Elite E-commerce Market Strategist with 20+ years of experience at McKinsey, BCG, and Bain. You advise Fortune 500 brands on competitive warfare, pricing architecture, and category domination.
+        system_prompt = """You are an Elite E-commerce Market Strategist with 20+ years of experience at McKinsey, BCG, and Bain. You advise Fortune 500 brands on competitive warfare, pricing architecture, category domination, and brand positioning.
 
 ## YOUR MISSION
-Generate exactly 6 BOARD-READY, highly actionable strategic insights that would make a CEO act within 48 hours.
+Produce a complete BOARD-READY strategic intelligence package for the CEO. Your output must be so actionable that the executive team can act on it within 48 hours.
 
 ## UNCOMPROMISING STANDARDS:
 - Output ONLY valid JSON. No markdown, no commentary outside the JSON.
-- Every 'summary' MUST cite hard data (exact prices, counts, percentages) from the intelligence report.
+- Every insight MUST cite hard data (exact prices, counts, percentages) from the intelligence report.
 - Every 'ai_recommendation' MUST specify:
   * A concrete price point or price range (e.g., "$89-99")
   * An expected gross margin percentage (e.g., "55-65%")
   * A timeline in days/weeks (e.g., "launch in 45 days")
   * An inventory or unit target (e.g., "500 units initial run")
-  * A clear KPI for success (e.g., "capture 8% of mid-premium segment in 90 days")
-- 'severity' MUST be one of: "critical", "high", "medium", "low".
+  * A clear KPI for success
+- 'severity' MUST be: "critical", "high", "medium", or "low".
+- 'score' in scorecard MUST be 1-10 (10 = dominant, 1 = weak).
 
-## OUTPUT SCHEMA:
+## REQUIRED OUTPUT STRUCTURE:
 {
+  "executive_summary": "3 sentences capturing the most critical strategic findings (under 100 words)",
+  "competitive_scorecard": {
+    "pricing_strategy": {"score": 8, "rationale": "..."},
+    "category_depth": {"score": 7, "rationale": "..."},
+    "brand_positioning": {"score": 9, "rationale": "..."},
+    "market_coverage": {"score": 6, "rationale": "..."}
+  },
   "insights": [
     {
-      "type": "pricing_warfare" | "product_gap" | "competitive_threat" | "counter_move" | "market_timing" | "brand_positioning",
+      "type": "pricing_warfare|product_gap|competitive_threat|counter_move|market_timing|brand_positioning|customer_psychology|supply_chain_signal",
       "title": "Board-level headline (under 80 chars)",
       "summary": "Data-backed situation analysis (80-150 words)",
       "ai_recommendation": "Specific action plan with numbers (80-150 words)",
       "severity": "critical|high|medium|low"
     }
-  ]
+  ],
+  "quick_wins": [
+    "Actionable step executable within 7 days (with expected impact)",
+    "Actionable step executable within 7 days (with expected impact)",
+    "Actionable step executable within 7 days (with expected impact)"
+  ],
+  "risk_assessment": "2-3 sentences on the biggest risks if we fail to respond"
 }"""
 
         user_prompt = f"""## COMPETITOR INTELLIGENCE REPORT — {data.get('competitor_name')}
-Scan Date: {datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC')}
+Scan Date: {data.get('scan_date')}
+Analysis Tier: {data.get('tier_context')}
 
 {json.dumps(data, indent=2, ensure_ascii=False)}
 
-## YOUR DELIVERABLE — 6 STRATEGIC INSIGHTS (one per type):
-1. "pricing_warfare" — How they architect price tiers, where their margin is richest, and where we can surgically undercut.
-2. "product_gap" — A specific missing category, orphan price point, or feature void we can exploit with a new SKU.
-3. "competitive_threat" — Their single strongest moat based on this data, and a concrete plan to neutralize it in 90 days.
-4. "counter_move" — An aggressive, asymmetric go-to-market action we should launch in the next 45 days.
-5. "market_timing" — Seasonal or cyclical timing insight: when to attack, when to hold, when to bundle.
-6. "brand_positioning" — Emotional/brand territory they own vs. whitespace we can claim.
+## YOUR DELIVERABLE — 8 STRATEGIC INSIGHTS (one per type):
+1. "pricing_warfare" — Price tier architecture, margin pockets, where to surgically undercut.
+2. "product_gap" — Missing category, orphan price point, or feature void to exploit.
+3. "competitive_threat" — Their strongest moat and a 90-day plan to neutralize it.
+4. "counter_move" — Aggressive asymmetric go-to-market action for the next 45 days.
+5. "market_timing" — Seasonal/cyclical insight: when to attack, hold, or bundle.
+6. "brand_positioning" — Emotional territory they own vs. whitespace to claim.
+7. "customer_psychology" — What their pricing/catalog reveals about their target customer.
+8. "supply_chain_signal" — What their product distribution hints about their operations.
 
 Return ONLY the JSON object. No preambles, no signatures."""
 
@@ -369,11 +572,11 @@ Return ONLY the JSON object. No preambles, no signatures."""
                             {"role": "system", "content": system_prompt},
                             {"role": "user", "content": user_prompt}
                         ],
-                        "max_tokens": 2500,
+                        "max_tokens": 3500,
                         "temperature": 0.3,
                         "top_p": 0.9,
                     },
-                    timeout=120
+                    timeout=150
                 )
                 
                 if response.status_code != 200:
@@ -408,12 +611,10 @@ Return ONLY the JSON object. No preambles, no signatures."""
                 self.logger.warning(f"  ↳ {provider['name']} error: {str(e)[:100]}")
                 continue
         
-        # كل المزودين فشلوا
         return None
 
-    def _parse_ai_response(self, text: str) -> List[Dict[str, Any]]:
+    def _parse_ai_response(self, text: str, analysis_data: Dict) -> List[Dict[str, Any]]:
         try:
-            # تنظيف الرد من markdown fences
             text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.IGNORECASE).strip()
             text = re.sub(r'\s*```$', '', text).strip()
             
@@ -423,17 +624,51 @@ Return ONLY the JSON object. No preambles, no signatures."""
                 text = text[start_idx:end_idx+1]
             
             ai_response = json.loads(text.strip())
-            insights_data = ai_response.get('insights', [])
-            
-            if not insights_data:
-                self.logger.warning("⚠️ AI returned empty insights array — using fallback")
-                return self._generate_fallback_insights()
             
             insights = []
-            valid_types = {"pricing_warfare", "product_gap", "competitive_threat", 
-                          "counter_move", "market_timing", "brand_positioning"}
+            timestamp = datetime.now(timezone.utc).isoformat()
+            comp_id = self.competitor['id']
             
-            for i, insight in enumerate(insights_data[:6]):
+            valid_types = {"pricing_warfare", "product_gap", "competitive_threat", 
+                          "counter_move", "market_timing", "brand_positioning",
+                          "customer_psychology", "supply_chain_signal"}
+            
+            # 1. Executive Summary (كـ insight خاص)
+            exec_summary = ai_response.get('executive_summary', '')
+            if exec_summary:
+                insights.append({
+                    "competitor_id": comp_id,
+                    "type": "executive_summary",
+                    "title": "🎯 Executive Briefing",
+                    "summary": str(exec_summary).strip(),
+                    "ai_recommendation": "Review the full strategic package below and prioritize the top 2 quick wins for this sprint.",
+                    "severity": "high",
+                    "created_at": timestamp
+                })
+            
+            # 2. Competitive Scorecard
+            scorecard = ai_response.get('competitive_scorecard', {})
+            if scorecard:
+                scorecard_text = " | ".join([
+                    f"{k.replace('_', ' ').title()}: {v.get('score', 0)}/10"
+                    for k, v in scorecard.items() if isinstance(v, dict)
+                ])
+                insights.append({
+                    "competitor_id": comp_id,
+                    "type": "scorecard",
+                    "title": "📊 Competitive Scorecard",
+                    "summary": scorecard_text,
+                    "ai_recommendation": "; ".join([
+                        v.get('rationale', '')[:200] 
+                        for v in scorecard.values() if isinstance(v, dict)
+                    ]),
+                    "severity": "medium",
+                    "created_at": timestamp
+                })
+            
+            # 3. Strategic Insights (حتى 8)
+            insights_data = ai_response.get('insights', [])
+            for i, insight in enumerate(insights_data[:8]):
                 insight_type = str(insight.get('type', 'general')).lower()
                 if insight_type not in valid_types:
                     insight_type = "general"
@@ -443,16 +678,42 @@ Return ONLY the JSON object. No preambles, no signatures."""
                     severity = "medium"
                 
                 insights.append({
-                    "competitor_id": self.competitor['id'],
+                    "competitor_id": comp_id,
                     "type": insight_type,
                     "title": str(insight.get('title', f'Strategic Insight #{i+1}')).strip()[:200],
                     "summary": str(insight.get('summary', '')).strip(),
                     "ai_recommendation": str(insight.get('ai_recommendation', '')).strip(),
                     "severity": severity,
-                    "created_at": datetime.now(timezone.utc).isoformat()
+                    "created_at": timestamp
                 })
             
-            self.logger.info(f"🤖 Generated {len(insights)} ELITE STRATEGIC insights")
+            # 4. Quick Wins (كـ insight واحد يحتوي على قائمة)
+            quick_wins = ai_response.get('quick_wins', [])
+            if quick_wins and isinstance(quick_wins, list):
+                insights.append({
+                    "competitor_id": comp_id,
+                    "type": "quick_wins",
+                    "title": "⚡ Quick Wins (Execute in 7 Days)",
+                    "summary": "\n".join([f"• {w}" for w in quick_wins[:3]]),
+                    "ai_recommendation": "Assign these to your growth team immediately. Each is designed for sub-7-day execution with measurable impact.",
+                    "severity": "high",
+                    "created_at": timestamp
+                })
+            
+            # 5. Risk Assessment
+            risk = ai_response.get('risk_assessment', '')
+            if risk:
+                insights.append({
+                    "competitor_id": comp_id,
+                    "type": "risk_assessment",
+                    "title": "⚠️ Risk Assessment",
+                    "summary": str(risk).strip(),
+                    "ai_recommendation": "Treat this as a 30-day warning window. Begin mitigation immediately.",
+                    "severity": "high",
+                    "created_at": timestamp
+                })
+            
+            self.logger.info(f"🤖 Generated {len(insights)} Executive insights (including summary/scorecard/quick-wins)")
             return insights
             
         except json.JSONDecodeError as e:
@@ -463,10 +724,10 @@ Return ONLY the JSON object. No preambles, no signatures."""
             self.logger.error(f"⚠️ Error parsing response: {e}")
             return self._generate_fallback_insights()
 
-    @rate_limit(calls_per_minute=10)
+    @rate_limit(calls_per_minute=8)
     def _generate_advanced_insights(self) -> List[Dict[str, Any]]:
         try:
-            print(f"\n📊 Analyzing market positioning for {self.name}...")
+            print(f"\n📊 Analyzing market positioning for {self.name} (tier: {self.tier})...")
             analysis_data = self._analyze_competitor_data()
             
             if "error" in analysis_data:
@@ -474,13 +735,13 @@ Return ONLY the JSON object. No preambles, no signatures."""
             
             system_prompt, user_prompt = self._build_strategic_prompt(analysis_data)
             
-            print(f"\n🧠 Generating board-level strategic counter-moves...")
-            print("⏳ Deep market analysis in progress (60-120 seconds)...")
+            print(f"\n🧠 Generating Executive strategic package...")
+            print("⏳ Deep market analysis in progress (60-150 seconds)...")
             
             ai_text = self._call_ai_provider(system_prompt, user_prompt)
             
             if ai_text:
-                return self._parse_ai_response(ai_text)
+                return self._parse_ai_response(ai_text, analysis_data)
             else:
                 self.logger.warning("⚠️ All AI providers failed — using fallback template")
                 return self._generate_fallback_insights()
@@ -494,13 +755,25 @@ Return ONLY the JSON object. No preambles, no signatures."""
         timestamp = datetime.now(timezone.utc).isoformat()
         prices = [p.get("current_price") for p in self.products if p.get("current_price")]
         insights = []
+        comp_id = self.competitor['id']
+        
+        # Executive Summary fallback
+        insights.append({
+            "competitor_id": comp_id,
+            "type": "executive_summary",
+            "title": "🎯 Executive Briefing (Baseline)",
+            "summary": f"Scanned {len(self.products)} products from {self.name}. Average price: ${sum(prices)/len(prices):.2f} across {len(prices)} priced items.",
+            "ai_recommendation": "AI providers were temporarily unavailable. Baseline analysis generated. Re-scan in 24 hours for full strategic package.",
+            "severity": "medium",
+            "created_at": timestamp
+        })
         
         if prices:
             avg_price = sum(prices) / len(prices)
             insights.append({
-                "competitor_id": self.competitor['id'],
+                "competitor_id": comp_id,
                 "type": "pricing_warfare",
-                "title": f"{self.name} — Baseline Pricing Intelligence",
+                "title": f"Baseline Pricing Intelligence",
                 "summary": f"Average market price: ${avg_price:.2f} across {len(prices)} products. Range: ${min(prices):.2f} to ${max(prices):.2f}.",
                 "ai_recommendation": "Position core competing products within 10% of this average to maintain market parity. Target 50-60% gross margin on premium SKUs.",
                 "severity": "medium",
@@ -522,7 +795,7 @@ class ScraperEngine:
         }
         self.logger = logging.getLogger('ScraperEngine')
     
-    def scrape(self, url: str, platform: str = None, max_retries: int = 3) -> List[Dict[str, Any]]:
+    def scrape(self, url: str, platform: str = None, max_retries: int = 3, max_products: int = 9999) -> List[Dict[str, Any]]:
         if not platform:
             platform = detect_platform(url)
         
@@ -538,6 +811,11 @@ class ScraperEngine:
                     products = scraper_func(url)
 
                 if products and len(products) > 0:
+                    # حدّ المنتجات حسب الخطة
+                    if len(products) > max_products:
+                        products = products[:max_products]
+                        self.logger.info(f"⏭️ Trimmed to {max_products} products (tier limit)")
+                    
                     print_success(f"Successfully scraped {len(products)} products")
                     return products
                     
@@ -589,27 +867,33 @@ class VeloraScraper:
         print(f"{Colors.OKCYAN}{'─'*80}{Colors.ENDC}")
         
         print(f"{Colors.BOLD}Target Competitor:{Colors.ENDC} {brief.get('competitor_name')}")
+        print(f"{Colors.BOLD}Tier:{Colors.ENDC} {brief.get('tier_context', 'free').upper()}")
         print(f"{Colors.BOLD}Products Analyzed:{Colors.ENDC} {brief.get('products_with_pricing')} / {brief.get('total_products_scanned')}")
         print()
         
-        pi = brief.get('pricing_intelligence', {})
-        print(f"{Colors.OKGREEN}┌{'─'*78}{Colors.ENDC}")
-        print(f"{Colors.OKGREEN}│{Colors.ENDC} {Colors.BOLD}PRICING INTELLIGENCE{Colors.ENDC}".ljust(80) + f"{Colors.OKGREEN}│{Colors.ENDC}")
-        print(f"{Colors.OKGREEN}├{'─'*78}{Colors.ENDC}")
-        print(f"{Colors.OKGREEN}│{Colors.ENDC} Average Price: ${pi.get('average_price', 0):.2f}  |  Median: ${pi.get('median_price', 0):.2f}")
-        print(f"{Colors.OKGREEN}│{Colors.ENDC} Price Spread:  ${pi.get('lowest_price', 0):.2f}  to  ${pi.get('highest_price', 0):.2f}")
-        print(f"{Colors.OKGREEN}└{'─'*78}┘{Colors.ENDC}")
-        print()
+        # Executive Summary
+        exec_insight = next((i for i in insights if i.get('type') == 'executive_summary'), None)
+        if exec_insight:
+            print(f"{Colors.BOLD}🎯 EXECUTIVE SUMMARY:{Colors.ENDC}")
+            print(f"  {exec_insight.get('summary')}")
+            print()
         
-        mp = brief.get('market_positioning', {})
-        print(f"{Colors.BOLD}🎯 MARKET POSITIONING:{Colors.ENDC}")
-        print(f"  {Colors.WARNING}Budget Segment:{Colors.ENDC} {mp.get('budget_segment', {}).get('count')} products ({mp.get('budget_segment', {}).get('percentage')}%)")
-        print(f"  {Colors.OKCYAN}Mid-Tier Segment:{Colors.ENDC} {mp.get('mid_tier_segment', {}).get('count')} products ({mp.get('mid_tier_segment', {}).get('percentage')}%)")
-        print(f"  {Colors.OKGREEN}Premium Segment:{Colors.ENDC} {mp.get('premium_segment', {}).get('count')} products ({mp.get('premium_segment', {}).get('percentage')}%)")
-        print()
+        # Scorecard
+        scorecard_insight = next((i for i in insights if i.get('type') == 'scorecard'), None)
+        if scorecard_insight:
+            print(f"{Colors.BOLD}📊 COMPETITIVE SCORECARD:{Colors.ENDC}")
+            print(f"  {scorecard_insight.get('summary')}")
+            print()
         
-        print_header("🧠 AI STRATEGIC COUNTER-MOVES")
+        # Strategic Insights
+        strategic_types = {"pricing_warfare", "product_gap", "competitive_threat", 
+                          "counter_move", "market_timing", "brand_positioning",
+                          "customer_psychology", "supply_chain_signal"}
+        
+        print_header("🧠 STRATEGIC INSIGHTS")
         for i, insight in enumerate(insights, 1):
+            if insight.get('type') not in strategic_types:
+                continue
             severity_color = Colors.WARNING if insight.get('severity') in ['critical', 'high'] else Colors.OKGREEN
             print(f"\n{Colors.OKCYAN}{'─'*80}{Colors.ENDC}")
             print(f"{Colors.BOLD}INSIGHT #{i} [{insight.get('type').upper()}] - Severity: {severity_color}{insight.get('severity').upper()}{Colors.ENDC}")
@@ -619,19 +903,28 @@ class VeloraScraper:
             print(f"\n{Colors.OKGREEN}🎯 Strategic Counter-Move:{Colors.ENDC}")
             print(f"  {insight.get('ai_recommendation')}")
         
+        # Quick Wins
+        qw_insight = next((i for i in insights if i.get('type') == 'quick_wins'), None)
+        if qw_insight:
+            print_header("⚡ QUICK WINS")
+            print(f"  {qw_insight.get('summary')}")
+        
         print(f"\n{Colors.OKGREEN}{'═'*80}{Colors.ENDC}\n")
 
     def scan_competitor(self, competitor: Dict[str, Any], url: str) -> bool:
         competitor_name = competitor.get('name', 'Unknown')
         competitor_id = competitor.get('id')
+        tier = competitor.get('_tier', 'free')
+        limits = competitor.get('_limits', TIER_LIMITS['free'])
         
         print(f"\n{'='*80}")
         print(f"🎯 Target Acquired: {competitor_name}")
         print(f"📍 URL: {url}")
+        print(f"🏆 Tier: {tier.upper()} (max {limits['max_products']} products)")
         print(f"{'='*80}\n")
         
         try:
-            products = self.scraper.scrape(url)
+            products = self.scraper.scrape(url, max_products=limits['max_products'])
             if not products:
                 print_warning(f"No products found for {competitor_name}")
                 return False
@@ -643,7 +936,14 @@ class VeloraScraper:
                 print_error("Failed to save products")
                 return False
             
-            intel_engine = MarketIntelligenceEngine(competitor, products)
+            # حفظ history (ميزة Pro Plus)
+            self.db.save_price_history(cleaned_products, competitor_id)
+            
+            # جلب المسح السابق (ميزة Pro)
+            previous_scan = self.db.get_previous_scan_data(competitor_id)
+            
+            # توليد الرؤى
+            intel_engine = MarketIntelligenceEngine(competitor, products, previous_scan)
             insights = intel_engine.generate_all_insights()
             
             brief = intel_engine._analyze_competitor_data()
@@ -652,7 +952,7 @@ class VeloraScraper:
             
             if insights:
                 self.db.save_insights(insights)
-                print_success(f"Saved {len(insights)} strategic insights to database (Ready for Flutter & Email)")
+                print_success(f"Saved {len(insights)} strategic insights to database")
             
             try:
                 print(f"\n📈 Analyzing price trends for {competitor_name}...")
@@ -669,7 +969,7 @@ class VeloraScraper:
             
             print_success(f"✅ Mission Complete: {competitor_name}")
             print(f"   • Products Mapped: {len(cleaned_products)}")
-            print(f"   • Strategic Insights Generated: {len(insights)}")
+            print(f"   • Executive Insights Generated: {len(insights)}")
             
             return True
             
@@ -679,15 +979,15 @@ class VeloraScraper:
             return False
     
     def run_dynamic_mode(self, force_all: bool = False):
-        print_info(" Running in DYNAMIC MODE")
+        print_info("Running in TIER-AWARE DYNAMIC MODE")
         pending = self.db.get_pending_competitors(force_all=force_all)
         
         if not pending:
             print_success("✅ All competitors are up to date!")
-            print_info("   Next auto-update in 24 hours")
+            print_info("   Next auto-update according to tier schedules")
             return
         
-        print_info(f" Found {len(pending)} competitor(s) to scan\n")
+        print_info(f"Found {len(pending)} competitor(s) to scan\n")
         
         for i, comp in enumerate(pending, 1):
             print(f"\n[{i}/{len(pending)}]")
@@ -722,13 +1022,13 @@ class VeloraScraper:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Velora — Competitive Market Intelligence Engine",
+        description="Velora v3.0 — Executive Market Intelligence Engine",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python main.py                          # Scan outdated competitors
-  python main.py --force-all              # Force scan all competitors
-  python main.py --continuous             # Run continuously (every 86400s)
+  python main.py                          # Scan based on tier schedules
+  python main.py --force-all              # Force scan all competitors (ignore schedules)
+  python main.py --continuous             # Run continuously
   python main.py https://example.com      # Scan specific URL
         """
     )

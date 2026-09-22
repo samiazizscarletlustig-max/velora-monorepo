@@ -8,15 +8,19 @@ import 'package:timeago/timeago.dart' as timeago;
 import 'competitor_analysis_screen.dart';
 import '../../../insights/presentation/screens/trend_analysis_screen.dart';
 
+// ✅✅ جديد: نظام الـ Tiers + نافذة الترقية
+import '../../../billing/data/tier_repository.dart';
+import '../../../billing/widgets/upgrade_dialog.dart';
+
 import '../../../../core/config/app_colors.dart';
 import '../../../../core/widgets/premium_widgets.dart';
 import '../../data/competitors_repository.dart';
 import '../providers/competitors_providers.dart';
 
 // ═══════════════════════════════════════════════════════════
-// 🎯 COMPETITORS SCREEN — AI PREMIUM EDITION (FINAL FIX)
-// ✅ الإصلاح الجوهري: نسخ القائمة قبل الفرز
-//    (Unsupported operation: sort ← كان الجاني طوال الوقت)
+// 🎯 COMPETITORS SCREEN — AI PREMIUM EDITION (TIER-AWARE)
+// ✅ الإصلاح الجوهري محفوظ: نسخ القائمة قبل الفرز
+// ✅ جديد: بوابة الـ Tiers (Free=3 / Pro=10 / ProPlus=25 / Ent=∞)
 // ═══════════════════════════════════════════════════════════
 class CompetitorsScreen extends ConsumerStatefulWidget {
   const CompetitorsScreen({super.key});
@@ -52,6 +56,28 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
     super.dispose();
   }
 
+  // ═════════════════════════════════════════════════════════
+  // 🔒 بوابة الـ Tiers — تفحص الحد قبل فتح نافذة الإضافة
+  // ═════════════════════════════════════════════════════════
+  Future<void> _handleAddTap(BuildContext context, int currentCount) async {
+    final tier = await TierRepository.getCurrentUserTier();
+    final max = TierRepository.getMaxCompetitors(tier);
+
+    if (!mounted) return;
+
+    if (currentCount >= max) {
+      UpgradeDialog.show(
+        context,
+        reason:
+            "You've reached the $max-competitor limit on your ${tier.toUpperCase()} plan. Upgrade to track more competitors with faster scan intervals.",
+        targetTier: tier == 'free' ? 'pro' : 'pro_plus',
+      );
+      return;
+    }
+
+    _showPremiumAddDialog(context, ref);
+  }
+
   @override
   Widget build(BuildContext context) {
     final competitorsAsync = ref.watch(competitorsListProvider);
@@ -67,6 +93,7 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
             onRefresh: () async {
               ref.invalidate(competitorsListProvider);
               ref.invalidate(competitorsStatsProvider);
+              setState(() {}); // ✅ تحديث شارة الخطة أيضاً
               await Future.delayed(const Duration(milliseconds: 500));
             },
             color: AppColors.darkAccent,
@@ -105,7 +132,8 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
       slivers: [
         SliverToBoxAdapter(
           child: _ScreenHeader(
-            onAdd: () => _showPremiumAddDialog(context, ref),
+            onAdd: () => _handleAddTap(context, competitors.length),
+            competitorCount: competitors.length,
           ),
         ),
         SliverToBoxAdapter(
@@ -137,7 +165,7 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
               child: _EmptyCompetitorsState(
-                onAdd: () => _showPremiumAddDialog(context, ref),
+                onAdd: () => _handleAddTap(context, competitors.length),
               ),
             ),
           )
@@ -167,11 +195,9 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
   }
 
   // ═════════════════════════════════════════════════════════
-  // ✅✅✅ الإصلاح الجوهري — الجاني كان هنا ✅✅✅
+  // ✅✅✅ الإصلاح الجوهري — محفوظ كما هو ✅✅✅
   // القائمة القادمة من الـ Provider ثابتة (unmodifiable)،
-  // واستدعاء .sort() عليها مباشرة كان يرمي:
-  // Unsupported operation: sort
-  // الحل: ننسخها أولاً إلى قائمة قابلة للتعديل.
+  // لذا ننسخها أولاً إلى قائمة قابلة للتعديل قبل الفرز.
   // ═════════════════════════════════════════════════════════
   List<Competitor> _filterAndSort(List<Competitor> competitors) {
     final query = _searchCtrl.text.trim().toLowerCase();
@@ -489,11 +515,12 @@ enum CompetitorSortMode {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🏠 SCREEN HEADER
+// 🏠 SCREEN HEADER (TIER-AWARE)
 // ═══════════════════════════════════════════════════════════
 class _ScreenHeader extends StatelessWidget {
   final VoidCallback onAdd;
-  const _ScreenHeader({required this.onAdd});
+  final int competitorCount;
+  const _ScreenHeader({required this.onAdd, required this.competitorCount});
 
   @override
   Widget build(BuildContext context) {
@@ -543,6 +570,8 @@ class _ScreenHeader extends StatelessWidget {
                         color: isDark ? AppColors.darkSecondary : AppColors.lightSecondary,
                       ),
                     ),
+                    const SizedBox(height: 8),
+                    _PlanUsageChip(count: competitorCount),
                   ],
                 ),
               ]),
@@ -556,6 +585,53 @@ class _ScreenHeader extends StatelessWidget {
           ]),
         ],
       ),
+    );
+  }
+}
+
+// ═══════════════════════════════════════════════════════════
+// 🏷️ PLAN USAGE CHIP — شارة الخطة والاستخدام (جديد)
+// ═══════════════════════════════════════════════════════════
+class _PlanUsageChip extends StatelessWidget {
+  final int count;
+  const _PlanUsageChip({required this.count});
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<String>(
+      future: TierRepository.getCurrentUserTier(),
+      builder: (context, snapshot) {
+        final tier = snapshot.data ?? 'free';
+        final max = TierRepository.getMaxCompetitors(tier);
+        final isLimited = count >= max;
+        final color = isLimited ? AppColors.warning : AppColors.darkAccent;
+
+        return Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+          decoration: BoxDecoration(
+            color: color.withOpacity(0.12),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: color.withOpacity(0.3)),
+          ),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(
+              tier == 'free' ? Icons.lock_outline : Icons.diamond_outlined,
+              size: 12,
+              color: color,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              '${tier.toUpperCase()} • $count/$max slots',
+              style: TextStyle(
+                color: color,
+                fontSize: 10,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 0.6,
+              ),
+            ),
+          ]),
+        );
+      },
     );
   }
 }
