@@ -31,7 +31,7 @@ class NotFoundException extends CompetitorException {
 class Competitor {
   final String id;
   final String name;
-  final String? website;
+  final String website; // ✅ تم جعله غير قابل للقيمة null لضمان عمل الـ Scraper
   final String? logoUrl;
   final String? shopifyStore;
   final String userId;
@@ -42,7 +42,7 @@ class Competitor {
   const Competitor({
     required this.id,
     required this.name,
-    this.website,
+    required this.website,
     this.logoUrl,
     this.shopifyStore,
     required this.userId,
@@ -55,7 +55,7 @@ class Competitor {
     return Competitor(
       id: map['id']?.toString() ?? '',
       name: (map['name'] as String?)?.trim() ?? 'Unknown',
-      website: map['website'] as String?,
+      website: (map['website'] as String?)?.trim() ?? 'https://unknown.com', // Fallback آمن
       logoUrl: map['logo_url'] as String?,
       shopifyStore: map['shopify_store'] as String?,
       userId: map['user_id']?.toString() ?? '',
@@ -92,9 +92,8 @@ class Competitor {
   }
 
   String? get domain {
-    if (website == null || website!.isEmpty) return null;
     try {
-      final uri = Uri.parse(website!.startsWith('http') ? website! : 'https://${website!}');
+      final uri = Uri.parse(website.startsWith('http') ? website : 'https://${website}');
       return uri.host.replaceAll(RegExp(r'^www\.'), '');
     } catch (_) {
       return null;
@@ -161,7 +160,7 @@ class Competitor {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🏛️ Competitors Repository — Production Ready & Fixed
+// 🏛️ Competitors Repository — Bulletproof & Production Ready
 // ═══════════════════════════════════════════════════════
 class CompetitorsRepository {
   final SupabaseClient _client;
@@ -179,7 +178,6 @@ class CompetitorsRepository {
 
   Future<List<Competitor>> getAll({required String userId}) async {
     _validateUserId(userId);
-
     try {
       final competitors = await _withTimeout(
         () => _client
@@ -210,7 +208,6 @@ class CompetitorsRepository {
 
   Future<Competitor?> getById({required String id, required String userId}) async {
     _validateUserId(userId);
-
     try {
       final response = await _withTimeout(
         () => _client
@@ -256,7 +253,7 @@ class CompetitorsRepository {
   }
 
   // ═══════════════════════════════════════════════════
-  // ✏️ WRITE OPERATIONS
+  // ✏️ WRITE OPERATIONS (مع تحقق صارم من Website)
   // ═══════════════════════════════════════════════════
 
   Future<Competitor> addCompetitor({
@@ -275,14 +272,25 @@ class CompetitorsRepository {
       throw ValidationException('Name must be less than 100 characters');
     }
 
-    final normalizedWebsite = website?.trim().isNotEmpty == true ? _normalizeUrl(website!.trim()) : null;
-    final normalizedShopify = shopifyStore?.trim().isNotEmpty == true ? _normalizeUrl(shopifyStore!.trim()) : null;
+    // ✅ تحقق صارم: يجب وجود موقع إلكتروني لكي يعمل الـ Scraper
+    String finalWebsite;
+    if (website?.trim().isNotEmpty == true) {
+      finalWebsite = _normalizeUrl(website!.trim());
+    } else if (trimmedName.contains('.') && !trimmedName.contains(' ')) {
+      // إذا أدخل المستخدم اسم النطاق مباشرة (مثل allbirds.com)
+      finalWebsite = _normalizeUrl(trimmedName);
+    } else {
+      throw ValidationException('A valid website URL or domain is required to scan the competitor.');
+    }
 
-    if (normalizedWebsite != null) {
-      final existing = await findByWebsite(website: normalizedWebsite, userId: userId);
-      if (existing != null) {
-        throw CompetitorException('A competitor with this website already exists', code: 'DUPLICATE_WEBSITE');
-      }
+    final normalizedShopify = shopifyStore?.trim().isNotEmpty == true 
+        ? _normalizeUrl(shopifyStore!.trim()) 
+        : null;
+
+    // منع التكرار
+    final existing = await findByWebsite(website: finalWebsite, userId: userId);
+    if (existing != null) {
+      throw CompetitorException('A competitor with this website already exists', code: 'DUPLICATE_WEBSITE');
     }
 
     try {
@@ -291,7 +299,7 @@ class CompetitorsRepository {
             .from('competitors')
             .insert({
               'name': trimmedName,
-              'website': normalizedWebsite,
+              'website': finalWebsite, // ✅ مضمون أنه ليس null
               'shopify_store': normalizedShopify,
               'user_id': userId,
             })
@@ -304,7 +312,10 @@ class CompetitorsRepository {
       return Competitor.fromMap(response);
     } on PostgrestException catch (e) {
       if (e.code == '23505') {
-        throw CompetitorException('A competitor with this data already exists', code: 'DUPLICATE');
+        throw CompetitorException('A competitor with this website already exists', code: 'DUPLICATE');
+      }
+      if (e.code == '23502') {
+        throw CompetitorException('Website URL is required and cannot be null', code: 'NOT_NULL');
       }
       throw CompetitorException('Failed to add competitor: ${e.message}', code: e.code, cause: e);
     } catch (e, stack) {
@@ -356,7 +367,6 @@ class CompetitorsRepository {
 
   Future<bool> deleteCompetitor({required String id, required String userId}) async {
     _validateUserId(userId);
-
     try {
       final exists = await _client
           .from('competitors')
@@ -380,7 +390,6 @@ class CompetitorsRepository {
     }
   }
 
-  // ✅ تم إضافة هذه الدالة المفقودة
   Future<int> deleteMany({
     required List<String> ids,
     required String userId,
@@ -413,7 +422,6 @@ class CompetitorsRepository {
 
   Future<CompetitorStats> getStats({required String userId}) async {
     _validateUserId(userId);
-
     try {
       final weekAgo = DateTime.now().subtract(const Duration(days: 7));
 
@@ -456,7 +464,6 @@ class CompetitorsRepository {
 
   Future<Map<String, int>> _batchCountProducts(List<String> competitorIds) async {
     if (competitorIds.isEmpty) return {};
-
     try {
       final products = await _client
           .from('products')
@@ -477,7 +484,6 @@ class CompetitorsRepository {
 
   Future<int> _countProductsForCompetitor(String competitorId) async {
     try {
-      // ✅ تم الإصلاح: استخدام .select('id') و .length بدلاً من count: CountOption.exact لتجنب أخطاء الإصدار
       final response = await _client
           .from('products')
           .select('id')
@@ -498,7 +504,6 @@ class CompetitorsRepository {
       final ids = competitors.map((c) => c['id'] as String).toList();
       if (ids.isEmpty) return 0;
 
-      // ✅ تم الإصلاح: استخدام .select('id') و .length
       final response = await _client
           .from('products')
           .select('id')
