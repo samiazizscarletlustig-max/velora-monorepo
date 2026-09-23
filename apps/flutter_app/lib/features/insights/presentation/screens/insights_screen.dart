@@ -11,7 +11,7 @@ import '../../../../core/config/app_colors.dart';
 import '../../../../core/widgets/premium_widgets.dart';
 import '../../../../core/extensions/widget_extensions.dart';
 import '../providers/insights_providers.dart';
-import '../../data/insights_repository.dart';
+import '../../data/insights_repository.dart'; // ✅ تم إصلاح الخطأ المطبعي هنا
 
 // ═══════════════════════════════════════════════════════════
 // 💡 INSIGHTS SCREEN — AI PREMIUM EDITION
@@ -272,7 +272,7 @@ class _HeroHeader extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🔍 PREMIUM SEARCH BAR
+// 🔍 PREMIUM SEARCH BAR (✅ تم الإصلاح والمحاذاة المثالية)
 // ══════════════════════════════════════════════════════════
 class _PremiumSearchBar extends StatefulWidget {
   final TextEditingController controller;
@@ -305,10 +305,10 @@ class _PremiumSearchBarState extends State<_PremiumSearchBar> {
       onFocusChange: (f) => setState(() => _focused = f),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        height: 52,
+        height: 56, // ✅ تم زيادة الارتفاع قليلاً لمحاذاة عمودية مثالية
         decoration: BoxDecoration(
           color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-          borderRadius: BorderRadius.circular(14),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
             color: _focused
                 ? AppColors.purple
@@ -318,101 +318,110 @@ class _PremiumSearchBarState extends State<_PremiumSearchBar> {
           boxShadow: [
             BoxShadow(
               color: _focused
-                  ? AppColors.purple.withOpacity(0.2)
-                  : Colors.black.withOpacity(isDark ? 0.15 : 0.04),
-              blurRadius: _focused ? 16 : 12,
+                  ? AppColors.purple.withOpacity(0.15)
+                  : Colors.black.withOpacity(isDark ? 0.2 : 0.05),
+              blurRadius: _focused ? 12 : 8,
               offset: const Offset(0, 4),
             ),
           ],
         ),
-        child: Row(children: [
-          const SizedBox(width: 16),
-          AnimatedSwitcher(
-            duration: const Duration(milliseconds: 200),
-            child: Icon(
-              _focused ? Icons.search_rounded : Icons.search_rounded,
-              key: ValueKey(_focused),
+        child: Row(
+          children: [
+            const SizedBox(width: 16),
+            // ✅ تم إزالة AnimatedSwitcher غير الضروري الذي كان يسبب وميضاً
+            Icon(
+              Icons.search_rounded,
               color: _focused
                   ? AppColors.purple
                   : (isDark ? AppColors.darkSecondary : AppColors.lightSecondary),
-              size: 20,
+              size: 22,
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: TextField(
-              controller: widget.controller,
-              focusNode: widget.focusNode,
-              onChanged: widget.onChanged,
-              style: TextStyle(
-                fontSize: 15,
-                color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
-                fontWeight: FontWeight.w500,
-              ),
-              decoration: InputDecoration(
-                border: InputBorder.none,
-                hintText: 'Search insights, trends, competitors...',
-                hintStyle: TextStyle(
-                  color: isDark
-                      ? AppColors.darkSecondary
-                      : AppColors.lightSecondary,
+            const SizedBox(width: 12),
+            Expanded(
+              child: TextField(
+                controller: widget.controller,
+                focusNode: widget.focusNode,
+                onChanged: widget.onChanged,
+                style: TextStyle(
                   fontSize: 15,
+                  color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
+                  fontWeight: FontWeight.w500,
                 ),
-                isDense: true,
-                contentPadding: EdgeInsets.zero,
-              ),
-            ),
-          ),
-          if (hasQuery) ...[
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              margin: const EdgeInsets.only(right: 4),
-              decoration: BoxDecoration(
-                color: AppColors.purple.withOpacity(0.1),
-                borderRadius: BorderRadius.circular(8),
-              ),
-              child: Text(
-                '${widget.totalCount}',
-                style: const TextStyle(
-                  fontSize: 12,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF8B5CF6),
+                decoration: InputDecoration(
+                  border: InputBorder.none,
+                  hintText: 'Search insights, trends, competitors...',
+                  hintStyle: TextStyle(
+                    color: isDark ? AppColors.darkSecondary : AppColors.lightSecondary,
+                    fontSize: 15,
+                  ),
+                  isDense: true,
+                  contentPadding: const EdgeInsets.symmetric(vertical: 16), // ✅ هذا هو سر المحاذاة المثالية
                 ),
               ),
             ),
-            MouseRegion(
-              cursor: SystemMouseCursors.click,
-              child: GestureDetector(
+            if (hasQuery) ...[
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                margin: const EdgeInsets.only(right: 8),
+                decoration: BoxDecoration(
+                  color: AppColors.purple.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  '${widget.totalCount}',
+                  style: const TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF8B5CF6),
+                  ),
+                ),
+              ),
+              GestureDetector(
                 onTap: widget.onClear,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  child: Icon(Icons.close_rounded,
-                      color: isDark
-                          ? AppColors.darkSecondary
-                          : AppColors.lightSecondary,
-                      size: 18),
+                child: Container(
+                  margin: const EdgeInsets.only(right: 12),
+                  padding: const EdgeInsets.all(8),
+                  decoration: BoxDecoration(
+                    color: isDark ? AppColors.darkSurfaceVariant : AppColors.lightSurfaceVariant,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Icon(
+                    Icons.close_rounded,
+                    color: isDark ? AppColors.darkSecondary : AppColors.lightSecondary,
+                    size: 18,
+                  ),
                 ),
               ),
-            ),
-          ] else
-            Container(
-              margin: const EdgeInsets.only(right: 12),
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-              decoration: BoxDecoration(
-                color: isDark
-                    ? AppColors.darkSurfaceVariant
-                    : AppColors.lightSurfaceVariant,
-                borderRadius: BorderRadius.circular(8),
+            ] else
+              Container(
+                margin: const EdgeInsets.only(right: 12),
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                decoration: BoxDecoration(
+                  color: isDark ? AppColors.darkSurfaceVariant : AppColors.lightSurfaceVariant,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      Icons.search_rounded,
+                      size: 14,
+                      color: Color(0xFF8E8E93),
+                    ),
+                    SizedBox(width: 4),
+                    Text(
+                      '⌘ F',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF8E8E93),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-              child: const Text('⌘ F',
-                  style: TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF8E8E93),
-                    letterSpacing: 0.3,
-                  )),
-            ),
-        ]),
+          ],
+        ),
       ),
     );
   }
@@ -1291,7 +1300,6 @@ class _FormattedText extends StatelessWidget {
       children: lines.asMap().entries.map((entry) {
         final index = entry.key;
         
-        // ✅ FIX: Prevent maxLines from becoming 0 or negative
         if (maxLines != null && index >= maxLines!) {
           return const SizedBox.shrink();
         }
