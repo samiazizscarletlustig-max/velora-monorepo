@@ -85,21 +85,21 @@ class AnalyticsRepository {
         return AnalyticsStats.empty();
       }
 
-      // 2. حساب المنتجات لهؤلاء المنافسين فقط (باستخدام count للكفاءة)
+      // 2. حساب المنتجات لهؤلاء المنافسين فقط (باستخدام length الآمن)
       final productsRes = await _client
           .from('products')
-          .select('id', count: CountOption.exact)
-          .in('competitor_id', competitorIds);
+          .select('id')
+          .inFilter('competitor_id', competitorIds);
       
-      final totalProducts = productsRes.count ?? 0;
+      final totalProducts = productsRes.length;
 
       // 3. حساب الرؤى لهؤلاء المنافسين فقط
       final insightsRes = await _client
           .from('ai_insights')
-          .select('id', count: CountOption.exact)
-          .in('competitor_id', competitorIds);
+          .select('id')
+          .inFilter('competitor_id', competitorIds);
       
-      final totalInsights = insightsRes.count ?? 0;
+      final totalInsights = insightsRes.length;
 
       final avgProducts = totalCompetitors > 0 
           ? totalProducts / totalCompetitors 
@@ -134,7 +134,7 @@ class AnalyticsRepository {
       final insights = await _client
           .from('ai_insights')
           .select('severity')
-          .in('competitor_id', competitorIds);
+          .inFilter('competitor_id', competitorIds);
 
       final counts = <String, int>{
         'critical': 0,
@@ -189,7 +189,7 @@ class AnalyticsRepository {
       final insights = await _client
           .from('ai_insights')
           .select('created_at')
-          .in('competitor_id', competitorIds)
+          .inFilter('competitor_id', competitorIds)
           .gte('created_at', thirtyDaysAgo.toIso8601String());
 
       final countsByDate = <String, int>{};
@@ -240,13 +240,13 @@ class AnalyticsRepository {
         final compId = competitor['id'] as String;
         final compName = competitor['name'] as String? ?? 'Unknown';
 
-        // حساب عدد المنتجات لهذا المنافس تحديداً
+        // حساب عدد المنتجات لهذا المنافس تحديداً (باستخدام length الآمن)
         final productsRes = await _client
             .from('products')
-            .select('id', count: CountOption.exact)
+            .select('id')
             .eq('competitor_id', compId);
         
-        final productsCount = productsRes.count ?? 0;
+        final productsCount = productsRes.length;
 
         results.add(ChartDataPoint(
           date: DateTime.now(),

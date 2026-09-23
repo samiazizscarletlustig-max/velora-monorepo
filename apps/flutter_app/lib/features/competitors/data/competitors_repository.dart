@@ -161,7 +161,7 @@ class Competitor {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🏛️ Competitors Repository — Production Ready
+// 🏛️ Competitors Repository — Production Ready & Fixed
 // ═══════════════════════════════════════════════════════
 class CompetitorsRepository {
   final SupabaseClient _client;
@@ -278,7 +278,6 @@ class CompetitorsRepository {
     final normalizedWebsite = website?.trim().isNotEmpty == true ? _normalizeUrl(website!.trim()) : null;
     final normalizedShopify = shopifyStore?.trim().isNotEmpty == true ? _normalizeUrl(shopifyStore!.trim()) : null;
 
-    // 🛡️ Defense in depth: Prevent duplicate websites for the same user
     if (normalizedWebsite != null) {
       final existing = await findByWebsite(website: normalizedWebsite, userId: userId);
       if (existing != null) {
@@ -381,6 +380,33 @@ class CompetitorsRepository {
     }
   }
 
+  // ✅ تم إضافة هذه الدالة المفقودة
+  Future<int> deleteMany({
+    required List<String> ids,
+    required String userId,
+  }) async {
+    _validateUserId(userId);
+    if (ids.isEmpty) return 0;
+
+    try {
+      final response = await _withTimeout(
+        () => _client
+            .from('competitors')
+            .delete()
+            .inFilter('id', ids)
+            .eq('user_id', userId)
+            .select('id'),
+        operation: 'deleteMany',
+      );
+
+      _logInfo('deleteMany', 'Deleted ${response.length} competitors');
+      return response.length;
+    } catch (e, stack) {
+      _logError('deleteMany', e, stack);
+      throw CompetitorException('Failed to delete competitors', cause: e);
+    }
+  }
+
   // ═══════════════════════════════════════════════════
   // 📊 ANALYTICS & STATS
   // ═══════════════════════════════════════════════════
@@ -451,11 +477,12 @@ class CompetitorsRepository {
 
   Future<int> _countProductsForCompetitor(String competitorId) async {
     try {
+      // ✅ تم الإصلاح: استخدام .select('id') و .length بدلاً من count: CountOption.exact لتجنب أخطاء الإصدار
       final response = await _client
           .from('products')
-          .select('id', count: CountOption.exact) // 🚀 Optimization: Count without fetching rows
+          .select('id')
           .eq('competitor_id', competitorId);
-      return response.count ?? 0;
+      return response.length;
     } catch (e) {
       return 0;
     }
@@ -471,12 +498,13 @@ class CompetitorsRepository {
       final ids = competitors.map((c) => c['id'] as String).toList();
       if (ids.isEmpty) return 0;
 
+      // ✅ تم الإصلاح: استخدام .select('id') و .length
       final response = await _client
           .from('products')
-          .select('id', count: CountOption.exact) // 🚀 Optimization: Count without fetching rows
+          .select('id')
           .inFilter('competitor_id', ids);
 
-      return response.count ?? 0;
+      return response.length;
     } catch (e) {
       return 0;
     }
@@ -488,7 +516,7 @@ class CompetitorsRepository {
     if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
       normalized = 'https://$normalized';
     }
-    // Remove trailing slash for consistent duplicate checking
+    // إزالة الشرطة المائلة الزائدة لمنع التكرار
     if (normalized.endsWith('/') && normalized.length > 9) {
       normalized = normalized.substring(0, normalized.length - 1);
     }
