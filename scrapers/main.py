@@ -124,7 +124,7 @@ class Config:
         return True
 
 # ═══════════════════════════════════════════════════════════
-# 🗄️ Database Manager (Tier-Aware)
+# 🗄️ Database Manager (Tier-Aware & Bulletproof)
 # ══════════════════════════════════════════════════════════
 class DatabaseManager:
     def __init__(self, supabase: Client):
@@ -260,8 +260,17 @@ class DatabaseManager:
             self.logger.warning(f"Could not fetch previous scan: {e}")
             return None
     
-    def save_insights(self, insights: List[Dict[str, Any]]) -> bool:
+    # ✅✅✅ تم الإصلاح هنا: ضمان وجود competitor_id و created_at لكل insight ✅✅✅
+    def save_insights(self, insights: List[Dict[str, Any]], competitor_id: str = None) -> bool:
         try:
+            # 1. التحقق وإصلاح أي نقص في البيانات قبل الإرسال
+            for insight in insights:
+                if not insight.get('competitor_id'):
+                    insight['competitor_id'] = competitor_id or insights[0].get('competitor_id')
+                if not insight.get('created_at'):
+                    insight['created_at'] = datetime.now(timezone.utc).isoformat()
+            
+            # 2. حذف insights القديمة من نوع trend لتجنب التكرار
             if insights:
                 comp_id = insights[0].get('competitor_id')
                 if comp_id:
@@ -269,6 +278,7 @@ class DatabaseManager:
                         self.supabase.table("ai_insights").delete().eq("competitor_id", comp_id).eq("type", "trend").execute()
                     except: pass
             
+            # 3. إدراج البيانات الجديدة
             self.supabase.table("ai_insights").insert(insights).execute()
             self.logger.info(f"Saved {len(insights)} AI insights")
             return True
@@ -405,8 +415,6 @@ class MarketIntelligenceEngine:
         }
 
     def _build_strategic_prompt(self, data: Dict[str, Any]) -> Tuple[str, str, int]:
-        """بناء Prompt ديناميكي: Free = ممتاز ومدعوم بالأرقام، Pro = خطة تنفيذ مالية كاملة"""
-        
         if self.tier == 'free':
             system_prompt = """You are an expert E-commerce Market Analyst. 
             Provide exactly 4 HIGH-VALUE, data-driven insights about this competitor.
@@ -431,13 +439,11 @@ class MarketIntelligenceEngine:
                 }
               ]
             }"""
-            
             user_prompt = f"""Analyze this competitor data and provide 4 high-value, data-driven insights with specific numbers:
 {json.dumps(data, indent=2)}
 """
             max_tokens = 2000
-
-        else: # Pro, Pro Plus, Enterprise
+        else:
             system_prompt = """You are an Elite E-commerce Market Strategist with 20+ years at McKinsey, BCG, and Bain.
             You advise Fortune 500 brands on competitive warfare and market domination.
 
@@ -467,7 +473,6 @@ class MarketIntelligenceEngine:
               "quick_wins": ["Actionable step within 7 days", "...", "..."],
               "risk_assessment": "2-3 sentences on biggest risks"
             }"""
-            
             user_prompt = f"""## COMPETITOR INTELLIGENCE REPORT — {data.get('competitor_name')}
 Tier: {data.get('tier_context').upper()}
 {json.dumps(data, indent=2)}
@@ -529,13 +534,12 @@ Return ONLY the JSON object."""
             comp_id = self.competitor['id']
             valid_types = {"pricing_warfare", "product_gap", "competitive_threat", "counter_move", "market_timing", "brand_positioning", "customer_psychology", "supply_chain_signal", "category_dominance"}
             
-            # 🟢 FREE TIER PARSING (4 High-Value Insights)
             if self.tier == 'free':
                 exec_summary = ai_response.get('executive_summary', '')
                 if exec_summary:
                     insights.append({"competitor_id": comp_id, "type": "executive_summary", "title": "📊 Market Overview", "summary": str(exec_summary).strip(), "ai_recommendation": "Review insights below. Upgrade to Pro for detailed financial projections, unit targets, and execution timelines.", "severity": "medium", "created_at": timestamp})
                 
-                for i, insight in enumerate(ai_response.get('insights', [])[:4]): # حد أقصى 4 رؤى قوية
+                for i, insight in enumerate(ai_response.get('insights', [])[:4]):
                     severity = str(insight.get('severity', 'medium')).lower()
                     if severity not in {"critical", "high", "medium", "low"}: severity = "medium"
                     insights.append({
@@ -545,8 +549,6 @@ Return ONLY the JSON object."""
                         "ai_recommendation": str(insight.get('ai_recommendation', '')).strip(),
                         "severity": severity, "created_at": timestamp
                     })
-            
-            # 💎 PRO TIER PARSING (Full Executive Package)
             else:
                 exec_summary = ai_response.get('executive_summary', '')
                 if exec_summary:
@@ -747,7 +749,8 @@ class VeloraScraper:
             if "error" not in brief: self.display_intelligence_brief(brief, insights)
             
             if insights:
-                self.db.save_insights(insights)
+                # ✅✅✅ تم تمرير competitor_id لضمان الحفظ الآمن ✅✅✅
+                self.db.save_insights(insights, competitor_id)
                 print_success(f"Saved {len(insights)} strategic insights to database")
             
             try:
