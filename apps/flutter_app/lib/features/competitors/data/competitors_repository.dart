@@ -24,10 +24,6 @@ class NotFoundException extends CompetitorException {
   NotFoundException(String id) : super('Competitor not found', code: id);
 }
 
-class PermissionException extends CompetitorException {
-  PermissionException() : super('You do not have permission to perform this action');
-}
-
 // ═══════════════════════════════════════════════════════
 // 🏪 Competitor Model — Enhanced & SAFE
 // ═══════════════════════════════════════════════════════
@@ -55,7 +51,6 @@ class Competitor {
     this.productsCount = 0,
   });
 
-  // ─── Factory Constructors ─────────────────────────
   factory Competitor.fromMap(Map<String, dynamic> map) {
     return Competitor(
       id: map['id']?.toString() ?? '',
@@ -66,14 +61,12 @@ class Competitor {
       userId: map['user_id']?.toString() ?? '',
       createdAt: _parseDateTime(map['created_at']) ?? DateTime.now(),
       lastScanAt: _parseDateTime(map['last_scan_at']),
-      // ✅ FIX: Safe parsing to prevent TypeError crash
       productsCount: (map['products_count'] != null) 
           ? int.tryParse(map['products_count'].toString()) ?? 0 
           : 0,
     );
   }
 
-  // ─── Copy With ────────────────────────────────────
   Competitor copyWith({
     String? id,
     String? name,
@@ -98,7 +91,6 @@ class Competitor {
     );
   }
 
-  // ─── Computed Properties ──────────────────────────
   String? get domain {
     if (website == null || website!.isEmpty) return null;
     try {
@@ -134,13 +126,10 @@ class Competitor {
 
   String get ageFormatted => _formatRelativeTime(createdAt);
 
-  // ─── Equality ─────────────────────────────────────
   @override
   bool operator ==(Object other) =>
       identical(this, other) ||
-      other is Competitor &&
-          runtimeType == other.runtimeType &&
-          id == other.id;
+      other is Competitor && runtimeType == other.runtimeType && id == other.id;
 
   @override
   int get hashCode => id.hashCode;
@@ -148,7 +137,6 @@ class Competitor {
   @override
   String toString() => 'Competitor(id: $id, name: $name, products: $productsCount)';
 
-  // ─── Helpers ──────────────────────────────────────
   static DateTime? _parseDateTime(dynamic value) {
     if (value == null) return null;
     if (value is DateTime) return value;
@@ -173,7 +161,7 @@ class Competitor {
 }
 
 // ═══════════════════════════════════════════════════════
-// 🏛️ Competitors Repository — Expert Level
+// 🏛️ Competitors Repository — Production Ready
 // ═══════════════════════════════════════════════════════
 class CompetitorsRepository {
   final SupabaseClient _client;
@@ -189,11 +177,7 @@ class CompetitorsRepository {
   // 📋 READ OPERATIONS
   // ═══════════════════════════════════════════════════
 
-  /// جلب جميع المنافسين للمستخدم
   Future<List<Competitor>> getAll({required String userId}) async {
-    // ✅ FIX: Debug print to catch empty userId immediately
-    debugPrint('🔍 DEBUG: Attempting to fetch competitors for userId: $userId');
-    
     _validateUserId(userId);
 
     try {
@@ -218,19 +202,13 @@ class CompetitorsRepository {
           'products_count': productsCountMap[id] ?? 0,
         });
       }).toList();
-    } on CompetitorException {
-      rethrow;
     } catch (e, stack) {
       _logError('getAll', e, stack);
-      return const []; // Return empty list instead of crashing
+      return const [];
     }
   }
 
-  /// جلب منافس واحد بالـ ID
-  Future<Competitor?> getById({
-    required String id,
-    required String userId,
-  }) async {
+  Future<Competitor?> getById({required String id, required String userId}) async {
     _validateUserId(userId);
 
     try {
@@ -248,29 +226,24 @@ class CompetitorsRepository {
 
       final count = await _countProductsForCompetitor(id);
       return Competitor.fromMap({...response, 'products_count': count});
-    } on CompetitorException {
-      rethrow;
     } catch (e, stack) {
       _logError('getById', e, stack);
       return null;
     }
   }
 
-  /// التحقق من وجود منافس بالـ website
-  Future<Competitor?> findByWebsite({
-    required String website,
-    required String userId,
-  }) async {
+  Future<Competitor?> findByWebsite({required String website, required String userId}) async {
     _validateUserId(userId);
-    if (website.isEmpty) return null;
+    if (website.trim().isEmpty) return null;
 
     try {
+      final normalized = _normalizeUrl(website.trim());
       final response = await _withTimeout(
         () => _client
             .from('competitors')
             .select()
             .eq('user_id', userId)
-            .eq('website', website)
+            .eq('website', normalized)
             .maybeSingle(),
         operation: 'findByWebsite',
       );
@@ -286,7 +259,6 @@ class CompetitorsRepository {
   // ✏️ WRITE OPERATIONS
   // ═══════════════════════════════════════════════════
 
-  /// إضافة منافس جديد
   Future<Competitor> addCompetitor({
     required String name,
     required String userId,
@@ -303,23 +275,14 @@ class CompetitorsRepository {
       throw ValidationException('Name must be less than 100 characters');
     }
 
-    final normalizedWebsite = website?.trim().isNotEmpty == true
-        ? _normalizeUrl(website!.trim())
-        : null;
-    final normalizedShopify = shopifyStore?.trim().isNotEmpty == true
-        ? _normalizeUrl(shopifyStore!.trim())
-        : null;
+    final normalizedWebsite = website?.trim().isNotEmpty == true ? _normalizeUrl(website!.trim()) : null;
+    final normalizedShopify = shopifyStore?.trim().isNotEmpty == true ? _normalizeUrl(shopifyStore!.trim()) : null;
 
+    // 🛡️ Defense in depth: Prevent duplicate websites for the same user
     if (normalizedWebsite != null) {
-      final existing = await findByWebsite(
-        website: normalizedWebsite,
-        userId: userId,
-      );
+      final existing = await findByWebsite(website: normalizedWebsite, userId: userId);
       if (existing != null) {
-        throw CompetitorException(
-          'A competitor with this website already exists',
-          code: 'DUPLICATE_WEBSITE',
-        );
+        throw CompetitorException('A competitor with this website already exists', code: 'DUPLICATE_WEBSITE');
       }
     }
 
@@ -351,7 +314,6 @@ class CompetitorsRepository {
     }
   }
 
-  /// تحديث منافس
   Future<Competitor> updateCompetitor({
     required String id,
     required String userId,
@@ -363,22 +325,12 @@ class CompetitorsRepository {
     _validateUserId(userId);
 
     final updateData = <String, dynamic>{};
-    if (name != null && name.trim().isNotEmpty) {
-      updateData['name'] = name.trim();
-    }
-    if (website != null) {
-      updateData['website'] = website.trim().isEmpty ? null : _normalizeUrl(website.trim());
-    }
-    if (shopifyStore != null) {
-      updateData['shopify_store'] = shopifyStore.trim().isEmpty ? null : _normalizeUrl(shopifyStore.trim());
-    }
-    if (lastScanAt != null) {
-      updateData['last_scan_at'] = lastScanAt.toIso8601String();
-    }
+    if (name != null && name.trim().isNotEmpty) updateData['name'] = name.trim();
+    if (website != null) updateData['website'] = website.trim().isEmpty ? null : _normalizeUrl(website.trim());
+    if (shopifyStore != null) updateData['shopify_store'] = shopifyStore.trim().isEmpty ? null : _normalizeUrl(shopifyStore.trim());
+    if (lastScanAt != null) updateData['last_scan_at'] = lastScanAt.toIso8601String();
 
-    if (updateData.isEmpty) {
-      throw ValidationException('No fields to update');
-    }
+    if (updateData.isEmpty) throw ValidationException('No fields to update');
 
     try {
       final response = await _withTimeout(
@@ -395,9 +347,7 @@ class CompetitorsRepository {
       _logInfo('updateCompetitor', 'Updated: $id');
       return Competitor.fromMap(response);
     } on PostgrestException catch (e) {
-      if (e.code == 'PGRST116') {
-        throw NotFoundException(id);
-      }
+      if (e.code == 'PGRST116') throw NotFoundException(id);
       throw CompetitorException('Failed to update: ${e.message}', code: e.code, cause: e);
     } catch (e, stack) {
       _logError('updateCompetitor', e, stack);
@@ -405,11 +355,7 @@ class CompetitorsRepository {
     }
   }
 
-  /// حذف منافس واحد
-  Future<bool> deleteCompetitor({
-    required String id,
-    required String userId,
-  }) async {
+  Future<bool> deleteCompetitor({required String id, required String userId}) async {
     _validateUserId(userId);
 
     try {
@@ -420,9 +366,7 @@ class CompetitorsRepository {
           .eq('user_id', userId)
           .maybeSingle();
 
-      if (exists == null) {
-        throw NotFoundException(id);
-      }
+      if (exists == null) throw NotFoundException(id);
 
       await _withTimeout(
         () => _client.from('competitors').delete().eq('id', id).eq('user_id', userId),
@@ -431,38 +375,9 @@ class CompetitorsRepository {
 
       _logInfo('deleteCompetitor', 'Deleted: $id');
       return true;
-    } on CompetitorException {
-      rethrow;
     } catch (e, stack) {
       _logError('deleteCompetitor', e, stack);
       throw CompetitorException('Failed to delete competitor', cause: e);
-    }
-  }
-
-  /// حذف عدة منافسين
-  Future<int> deleteMany({
-    required List<String> ids,
-    required String userId,
-  }) async {
-    _validateUserId(userId);
-    if (ids.isEmpty) return 0;
-
-    try {
-      final response = await _withTimeout(
-        () => _client
-            .from('competitors')
-            .delete()
-            .inFilter('id', ids)
-            .eq('user_id', userId)
-            .select('id'),
-        operation: 'deleteMany',
-      );
-
-      _logInfo('deleteMany', 'Deleted ${response.length} competitors');
-      return response.length;
-    } catch (e, stack) {
-      _logError('deleteMany', e, stack);
-      throw CompetitorException('Failed to delete competitors', cause: e);
     }
   }
 
@@ -470,25 +385,23 @@ class CompetitorsRepository {
   // 📊 ANALYTICS & STATS
   // ═══════════════════════════════════════════════════
 
-  /// إحصائيات المستخدم
   Future<CompetitorStats> getStats({required String userId}) async {
     _validateUserId(userId);
 
     try {
       final weekAgo = DateTime.now().subtract(const Duration(days: 7));
 
-      final competitorsFuture = _client
+      final competitors = await _client
           .from('competitors')
           .select('id, last_scan_at')
           .eq('user_id', userId);
-      final productsFuture = _getTotalProductsCount(userId);
 
-      final competitors = await competitorsFuture;
-      final products = await productsFuture;
+      final products = await _getTotalProductsCount(userId);
 
       final total = competitors.length;
       var scannedThisWeek = 0;
       var neverScanned = 0;
+      
       for (final row in competitors) {
         final lastScan = Competitor._parseDateTime(row['last_scan_at']);
         if (lastScan == null) {
@@ -508,24 +421,6 @@ class CompetitorsRepository {
     } catch (e, stack) {
       _logError('getStats', e, stack);
       return CompetitorStats.empty;
-    }
-  }
-
-  /// تسجيل بدء عملية scan
-  Future<bool> markScanStarted({
-    required String competitorId,
-    required String userId,
-  }) async {
-    try {
-      await updateCompetitor(
-        id: competitorId,
-        userId: userId,
-        lastScanAt: DateTime.now(),
-      );
-      return true;
-    } catch (e) {
-      _logError('markScanStarted', e, null);
-      return false;
     }
   }
 
@@ -558,9 +453,9 @@ class CompetitorsRepository {
     try {
       final response = await _client
           .from('products')
-          .select('id')
+          .select('id', count: CountOption.exact) // 🚀 Optimization: Count without fetching rows
           .eq('competitor_id', competitorId);
-      return response.length;
+      return response.count ?? 0;
     } catch (e) {
       return 0;
     }
@@ -576,12 +471,12 @@ class CompetitorsRepository {
       final ids = competitors.map((c) => c['id'] as String).toList();
       if (ids.isEmpty) return 0;
 
-      final products = await _client
+      final response = await _client
           .from('products')
-          .select('id')
+          .select('id', count: CountOption.exact) // 🚀 Optimization: Count without fetching rows
           .inFilter('competitor_id', ids);
 
-      return products.length;
+      return response.count ?? 0;
     } catch (e) {
       return 0;
     }
@@ -589,10 +484,15 @@ class CompetitorsRepository {
 
   String _normalizeUrl(String url) {
     if (url.isEmpty) return url;
-    if (!url.startsWith('http://') && !url.startsWith('https://')) {
-      return 'https://$url';
+    String normalized = url.trim();
+    if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
+      normalized = 'https://$normalized';
     }
-    return url;
+    // Remove trailing slash for consistent duplicate checking
+    if (normalized.endsWith('/') && normalized.length > 9) {
+      normalized = normalized.substring(0, normalized.length - 1);
+    }
+    return normalized;
   }
 
   void _validateUserId(String userId) {
@@ -601,24 +501,16 @@ class CompetitorsRepository {
     }
   }
 
-  Future<T> _withTimeout<T>(
-    Future<T> Function() action, {
-    required String operation,
-  }) async {
+  Future<T> _withTimeout<T>(Future<T> Function() action, {required String operation}) async {
     try {
       return await action().timeout(_timeout);
     } on TimeoutException {
-      throw CompetitorException(
-        'Operation timed out after ${_timeout.inSeconds}s',
-        code: 'TIMEOUT',
-      );
+      throw CompetitorException('Operation timed out after ${_timeout.inSeconds}s', code: 'TIMEOUT');
     }
   }
 
   void _logInfo(String operation, String message) {
-    if (kDebugMode) {
-      debugPrint('✅ [$operation] $message');
-    }
+    if (kDebugMode) debugPrint('✅ [$operation] $message');
   }
 
   void _logError(String operation, Object error, StackTrace? stack) {
@@ -651,25 +543,12 @@ class CompetitorStats {
   });
 
   static const empty = CompetitorStats(
-    total: 0,
-    products: 0,
-    scannedThisWeek: 0,
-    pendingScan: 0,
-    neverScanned: 0,
+    total: 0, products: 0, scannedThisWeek: 0, pendingScan: 0, neverScanned: 0,
   );
 
   double get scanRate => total == 0 ? 0 : scannedThisWeek / total;
   double get avgProductsPerCompetitor => total == 0 ? 0 : products / total;
 
-  Map<String, int> toMap() => {
-        'total': total,
-        'products': products,
-        'scannedThisWeek': scannedThisWeek,
-        'pendingScan': pendingScan,
-        'neverScanned': neverScanned,
-      };
-
   @override
-  String toString() => 'CompetitorStats(total: $total, products: $products, '
-      'scanned: $scannedThisWeek, pending: $pendingScan)';
+  String toString() => 'CompetitorStats(total: $total, products: $products, scanned: $scannedThisWeek, pending: $pendingScan)';
 }

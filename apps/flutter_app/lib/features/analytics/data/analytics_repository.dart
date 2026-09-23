@@ -48,7 +48,7 @@ class AnalyticsStats {
         totalCompetitors: 0,
         totalProducts: 0,
         totalInsights: 0,
-        avgProductsPerCompetitor: 0,
+        avgProductsPerCompetitor: 0.0,
       );
 }
 
@@ -56,36 +56,59 @@ class AnalyticsStats {
 // Repository
 // ═══════════════════════════════════════════
 
-/// Repository لجلب بيانات Analytics
+/// Repository لجلب بيانات Analytics (معزولة تماماً للمستخدم الحالي)
 class AnalyticsRepository {
   final SupabaseClient _client;
 
   AnalyticsRepository({SupabaseClient? client})
       : _client = client ?? Supabase.instance.client;
 
-  /// جلب الإحصائيات العامة
+  /// الحصول على معرف المستخدم الحالي
+  String? get _currentUserId => _client.auth.currentUser?.id;
+
+  /// جلب الإحصائيات العامة (معزولة حسب المستخدم)
   Future<AnalyticsStats> getStats() async {
+    final userId = _currentUserId;
+    if (userId == null) return AnalyticsStats.empty();
+
     try {
-      final competitors = await _client.from('competitors').select('id');
-      final insights = await _client.from('ai_insights').select('id');
-      
-      // محاولة جلب المنتجات (قد لا يكون الجدول موجوداً)
-      int productsCount = 0;
-      try {
-        final products = await _client.from('products').select('id');
-        productsCount = products.length;
-      } catch (e) {
-        print('⚠️ Products table may not exist: $e');
+      // 1. جلب منافسي المستخدم الحالي فقط
+      final competitorsRes = await _client
+          .from('competitors')
+          .select('id')
+          .eq('user_id', userId);
+
+      final competitorIds = competitorsRes.map((c) => c['id'] as String).toList();
+      final totalCompetitors = competitorIds.length;
+
+      if (totalCompetitors == 0) {
+        return AnalyticsStats.empty();
       }
 
-      final avgProducts = competitors.isEmpty
-          ? 0.0
-          : productsCount / competitors.length;
+      // 2. حساب المنتجات لهؤلاء المنافسين فقط (باستخدام count للكفاءة)
+      final productsRes = await _client
+          .from('products')
+          .select('id', count: CountOption.exact)
+          .in('competitor_id', competitorIds);
+      
+      final totalProducts = productsRes.count ?? 0;
+
+      // 3. حساب الرؤى لهؤلاء المنافسين فقط
+      final insightsRes = await _client
+          .from('ai_insights')
+          .select('id', count: CountOption.exact)
+          .in('competitor_id', competitorIds);
+      
+      final totalInsights = insightsRes.count ?? 0;
+
+      final avgProducts = totalCompetitors > 0 
+          ? totalProducts / totalCompetitors 
+          : 0.0;
 
       return AnalyticsStats(
-        totalCompetitors: competitors.length,
-        totalProducts: productsCount,
-        totalInsights: insights.length,
+        totalCompetitors: totalCompetitors,
+        totalProducts: totalProducts,
+        totalInsights: totalInsights,
         avgProductsPerCompetitor: double.parse(avgProducts.toStringAsFixed(1)),
       );
     } catch (e) {
@@ -94,12 +117,25 @@ class AnalyticsRepository {
     }
   }
 
-  /// 📊 توزيع الـ Insights حسب Severity (Pie Chart)
+  /// 📊 توزيع الـ Insights حسب Severity (Pie Chart) - معزول للمستخدم
   Future<List<PieSlice>> getInsightsDistribution() async {
-    try {
-      final insights = await _client.from('ai_insights').select('severity');
+    final userId = _currentUserId;
+    if (userId == null) return [];
 
-      // عد كل severity
+    try {
+      final competitorsRes = await _client
+          .from('competitors')
+          .select('id')
+          .eq('user_id', userId);
+
+      final competitorIds = competitorsRes.map((c) => c['id'] as String).toList();
+      if (competitorIds.isEmpty) return [];
+
+      final insights = await _client
+          .from('ai_insights')
+          .select('severity')
+          .in('competitor_id', competitorIds);
+
       final counts = <String, int>{
         'critical': 0,
         'high': 0,
@@ -114,7 +150,6 @@ class AnalyticsRepository {
         }
       }
 
-      // تحويل إلى PieSlice
       final colors = {
         'critical': 'EF4444',
         'high': 'F59E0B',
@@ -136,27 +171,37 @@ class AnalyticsRepository {
     }
   }
 
-  /// 📈 Insights عبر الزمن (Line Chart - آخر 30 يوم)
+  /// 📈 Insights عبر الزمن (Line Chart - آخر 30 يوم) - معزول للمستخدم
   Future<List<ChartDataPoint>> getInsightsTimeline() async {
+    final userId = _currentUserId;
+    if (userId == null) return [];
+
     try {
+      final competitorsRes = await _client
+          .from('competitors')
+          .select('id')
+          .eq('user_id', userId);
+
+      final competitorIds = competitorsRes.map((c) => c['id'] as String).toList();
+      if (competitorIds.isEmpty) return [];
+
       final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
       final insights = await _client
           .from('ai_insights')
           .select('created_at')
+          .in('competitor_id', competitorIds)
           .gte('created_at', thirtyDaysAgo.toIso8601String());
 
-      // تجميع حسب اليوم
       final countsByDate = <String, int>{};
       for (final insight in insights) {
         final dateStr = insight['created_at'] as String;
         final date = DateTime.tryParse(dateStr);
         if (date != null) {
-          final key = '${date.year}-${date.month}-${date.day}';
+          final key = '${date.year}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}';
           countsByDate[key] = (countsByDate[key] ?? 0) + 1;
         }
       }
 
-      // تحويل إلى ChartDataPoint
       final points = countsByDate.entries.map((e) {
         final parts = e.key.split('-');
         final date = DateTime(
@@ -170,7 +215,6 @@ class AnalyticsRepository {
         );
       }).toList();
 
-      // ترتيب حسب التاريخ
       points.sort((a, b) => a.date.compareTo(b.date));
       return points;
     } catch (e) {
@@ -179,36 +223,41 @@ class AnalyticsRepository {
     }
   }
 
-  /// 🏆 أفضل 5 منافسين (Bar Chart)
+  /// 🏆 أفضل 5 منافسين (Bar Chart) - معزول للمستخدم
   Future<List<ChartDataPoint>> getTopCompetitors() async {
+    final userId = _currentUserId;
+    if (userId == null) return [];
+
     try {
-      final competitors = await _client.from('competitors').select('id, name');
+      final competitorsRes = await _client
+          .from('competitors')
+          .select('id, name')
+          .eq('user_id', userId);
 
       final results = <ChartDataPoint>[];
       
-      for (final competitor in competitors.take(5)) {
-        // حساب عدد المنتجات لكل منافس
-        int productsCount = 0;
-        try {
-          final products = await _client
-              .from('products')
-              .select('id')
-              .eq('competitor_id', competitor['id'] as String);
-          productsCount = products.length;
-        } catch (e) {
-          // Products table may not exist
-        }
+      for (final competitor in competitorsRes) {
+        final compId = competitor['id'] as String;
+        final compName = competitor['name'] as String? ?? 'Unknown';
+
+        // حساب عدد المنتجات لهذا المنافس تحديداً
+        final productsRes = await _client
+            .from('products')
+            .select('id', count: CountOption.exact)
+            .eq('competitor_id', compId);
+        
+        final productsCount = productsRes.count ?? 0;
 
         results.add(ChartDataPoint(
           date: DateTime.now(),
           value: productsCount.toDouble(),
-          label: competitor['name'] as String? ?? 'Unknown',
+          label: compName,
         ));
       }
 
-      // ترتيب من الأعلى للأقل
+      // ترتيب من الأعلى للأقل وأخذ أفضل 5 فقط
       results.sort((a, b) => b.value.compareTo(a.value));
-      return results;
+      return results.take(5).toList();
     } catch (e) {
       print('❌ Error getting top competitors: $e');
       return [];
