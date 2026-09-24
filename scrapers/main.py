@@ -1,13 +1,13 @@
 """
  Velora — Advanced Competitive Market Intelligence Engine
 ═══════════════════════════════════════════════════════════════
-PRODUCTION VERSION v3.3 — "Scientific & Executive Intelligence Edition"
+PRODUCTION VERSION v3.4 — "The AI Whisperer Edition"
 
 ☁️ Cloud-Powered (Hugging Face Router — Multi-Provider Chain)
 🏆 Tier-Aware Scanning (Free / Pro / Pro Plus / Enterprise)
-🧠 Dynamic AI Analysis: 
-   - Free: 4 Deep, Scientific, Data-Driven Insights (Manager-Ready)
-   - Pro: 8 Executive Insights + Scorecard + Financial Execution Blueprint
+🧠 Dynamic AI Analysis (Strictly Optimized): 
+   - Free: 4 Surgical, Data-Driven Insights (Upgrade Pressure)
+   - Pro: 8 Executive Insights + Scorecard + Financial Blueprint
 📈 Price History Tracking & Strict Rate Limiting
 
 Architecture:
@@ -39,14 +39,14 @@ from core.trend_analyzer import TrendAnalyzer
 # 🏆 TIER SYSTEM — حدود صارمة لكل خطة اشتراك
 # ═══════════════════════════════════════════════════════════
 TIER_LIMITS = {
-    'free':       {'max_competitors': 3,    'scan_interval_hours': 24, 'max_products': 300,  'ai_depth': 'scientific', 'ai_tokens': 2500},
-    'pro':        {'max_competitors': 10,   'scan_interval_hours': 6,  'max_products': 1000, 'ai_depth': 'executive',  'ai_tokens': 4000},
-    'pro_plus':   {'max_competitors': 25,   'scan_interval_hours': 3,  'max_products': 2500, 'ai_depth': 'executive',  'ai_tokens': 4000},
-    'enterprise': {'max_competitors': 9999, 'scan_interval_hours': 1,  'max_products': 9999, 'ai_depth': 'executive',  'ai_tokens': 4000},
+    'free':       {'max_competitors': 3,    'scan_interval_hours': 24, 'max_products': 300,  'ai_depth': 'scientific', 'ai_tokens': 3000},
+    'pro':        {'max_competitors': 10,   'scan_interval_hours': 6,  'max_products': 1000, 'ai_depth': 'executive',  'ai_tokens': 4500},
+    'pro_plus':   {'max_competitors': 25,   'scan_interval_hours': 3,  'max_products': 2500, 'ai_depth': 'executive',  'ai_tokens': 4500},
+    'enterprise': {'max_competitors': 9999, 'scan_interval_hours': 1,  'max_products': 9999, 'ai_depth': 'executive',  'ai_tokens': 4500},
 }
 
 # ═══════════════════════════════════════════════════════════
-# 🛡️ Rate Limiting (يحمي حدود API من الاستنزاف)
+# 🛡️ Rate Limiting
 # ═════════════════════════════════════════════════════════
 def rate_limit(calls_per_minute: int = 10):
     def decorator(func):
@@ -78,7 +78,7 @@ logging.basicConfig(
 logger = logging.getLogger('VeloraScraper')
 
 # ═══════════════════════════════════════════════════════════
-# 🎨 Color Codes (Terminal Output)
+# 🎨 Color Codes
 # ══════════════════════════════════════════════════════════
 class Colors:
     HEADER = '\033[95m'
@@ -92,8 +92,8 @@ class Colors:
 
 def print_banner():
     print(f"\n{Colors.HEADER}{'═'*80}{Colors.ENDC}")
-    print(f"{Colors.OKBLUE} Velora v3.3 — Scientific & Executive Intelligence Engine{Colors.ENDC}")
-    print(f"{Colors.OKCYAN}   Cloud-Powered • Tier-Aware • Deep Analytical Prompts{Colors.ENDC}")
+    print(f"{Colors.OKBLUE} Velora v3.4 — The AI Whisperer Edition{Colors.ENDC}")
+    print(f"{Colors.OKCYAN}   Surgical Precision • Zero Fluff • Maximum Token Efficiency{Colors.ENDC}")
     print(f"{Colors.HEADER}{'═'*80}{Colors.ENDC}\n")
 
 def print_success(msg): print(f"{Colors.OKGREEN}✅ {msg}{Colors.ENDC}")
@@ -124,7 +124,7 @@ class Config:
         return True
 
 # ═══════════════════════════════════════════════════════════
-# 🗄️ Database Manager (Tier-Aware & Bulletproof)
+# 🗄️ Database Manager
 # ══════════════════════════════════════════════════════════
 class DatabaseManager:
     def __init__(self, supabase: Client):
@@ -184,23 +184,26 @@ class DatabaseManager:
             self.logger.error(f"Failed to fetch competitors: {e}")
             return []
     
-    def get_or_create_competitor(self, url: str) -> Optional[Dict[str, Any]]:
+    def get_or_create_competitor(self, url: str, user_id: str = None) -> Optional[Dict[str, Any]]:
         try:
             for check_url in [url, url.rstrip("/") + "/" if not url.endswith("/") else url.rstrip("/")]:
                 response = self.supabase.table("competitors").select("id, name, website, user_id").eq("website", check_url).execute()
                 if response.data: return response.data[0]
             
             store_name = urlparse(url).netloc.replace('www.', '').split('.')[0].capitalize()
-            users = self.supabase.table("users").select("id").limit(1).execute()
-            if not users.data: 
-                print_error("No users found.")
-                return None
+            
+            if not user_id:
+                users = self.supabase.auth.admin.list_users().get('users', [])
+                if not users:
+                    print_error("No users found in auth.users.")
+                    return None
+                user_id = users[0]['id']
             
             response = self.supabase.table("competitors").insert({
-                'name': store_name, 'website': url, 'user_id': users.data[0]['id'],
+                'name': store_name, 'website': url, 'user_id': user_id,
                 'created_at': datetime.now(timezone.utc).isoformat()
             }).execute()
-            if response.data: print_success(f"Created competitor: {store_name}")
+            if response.data: print_success(f"Created competitor: {store_name} for user {user_id}")
             return response.data[0] if response.data else None
         except Exception as e:
             self.logger.error(f"Failed to create competitor: {e}")
@@ -315,7 +318,7 @@ class DatabaseManager:
             return False
 
 # ═══════════════════════════════════════════════════════════
-# 🧠 DYNAMIC MARKET INTELLIGENCE ENGINE (v3.3 - UPGRADED PROMPTS)
+# 🧠 DYNAMIC MARKET INTELLIGENCE ENGINE (v3.4 - AI WHISPERER)
 # ═══════════════════════════════════════════════════════════
 class MarketIntelligenceEngine:
     PROVIDERS = [
@@ -370,7 +373,12 @@ class MarketIntelligenceEngine:
                     break
         
         top_categories = category_counts.most_common(5)
-        diversity_score = len(category_counts) / max(len(self.CATEGORY_KEYWORDS), 1) * 100
+        
+        # ✅ NEW: Category Concentration Index (HHI)
+        total_cat_products = sum(category_counts.values())
+        hhi = sum((count / total_cat_products) ** 2 for count in category_counts.values()) if total_cat_products > 0 else 0
+        hhi_score = round(hhi * 10000, 1)
+        hhi_interp = "highly concentrated" if hhi_score > 2500 else "moderately concentrated" if hhi_score > 1500 else "diversified"
         
         price_gaps = []
         sorted_prices = sorted(prices)
@@ -379,139 +387,150 @@ class MarketIntelligenceEngine:
             if gap > avg_price * 0.3:
                 price_gaps.append({"from": round(sorted_prices[i], 2), "to": round(sorted_prices[i+1], 2), "size": round(gap, 2)})
         
-        comparison = None
-        if self.previous_scan and self.previous_scan.get("previous_insights"):
-            comparison = {"previous_scan_available": True, "previous_insights_count": len(self.previous_scan["previous_insights"])}
+        # ✅ NEW: Price-Gap-to-Average Ratio
+        price_gap_ratios = []
+        for gap in price_gaps[:5]:
+            ratio = gap['size'] / avg_price if avg_price > 0 else 0
+            price_gap_ratios.append({**gap, 'ratio_to_avg': round(ratio, 2)})
         
+        cov = round(stdev_price / avg_price, 2) if avg_price > 0 else 0
+        cov_interp = "inconsistent/opportunistic" if cov > 0.4 else "disciplined/confident" if cov < 0.15 else "moderate"
+        
+        promo_pct = round((promotion_count / len(self.products)) * 100, 1) if self.products else 0
+        top_cat = top_categories[0] if top_categories else ("unknown", 0)
+        top_cat_pct = round((top_cat[1] / len(prices)) * 100, 1) if len(prices) > 0 else 0
+        largest_gap = price_gap_ratios[0] if price_gap_ratios else {"from": 0, "to": 0, "size": 0, "ratio_to_avg": 0}
+
+        # ✅ NEW: Headline Stats (Forced AI Usage)
+        headline_stats = f"""
+        HEADLINE STATS (You MUST use at least 3 of these verbatim with exact values):
+        - Largest Price Gap: ${largest_gap['from']}-${largest_gap['to']} (Size: ${largest_gap['size']}, Ratio to Avg: {largest_gap['ratio_to_avg']}x)
+        - Category Concentration: Top category is '{top_cat[0]}' ({top_cat[1]} products, {top_cat_pct}% of catalog). HHI Index: {hhi_score} ({hhi_interp}).
+        - Promotional Intensity: {promo_pct}% of products use promo keywords.
+        - Price Discipline (CoV): {cov} ({cov_interp} pricing).
+        """
+
         return {
             "competitor_name": self.name,
             "scan_date": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC'),
             "tier_context": self.tier,
             "total_products_scanned": len(self.products),
             "products_with_pricing": len(prices),
+            "headline_stats": headline_stats,
             "pricing_intelligence": {
                 "average_price": round(avg_price, 2), "median_price": round(median_price, 2),
                 "standard_deviation": round(stdev_price, 2), "lowest_price": round(min(prices), 2),
                 "highest_price": round(max(prices), 2), "price_spread": round(max(prices) - min(prices), 2),
-                "price_coefficient_of_variation": round(stdev_price / avg_price, 2) if avg_price > 0 else 0
+                "price_coefficient_of_variation": cov, "cov_interpretation": cov_interp
             },
             "market_positioning": {
-                "budget_segment": {"count": len(budget_products), "percentage": round(len(budget_products)/len(prices)*100, 1), "threshold": f"Under ${round(budget_threshold, 2)}"},
-                "mid_tier_segment": {"count": len(mid_tier), "percentage": round(len(mid_tier)/len(prices)*100, 1), "threshold": f"${round(budget_threshold, 2)} - ${round(premium_threshold, 2)}"},
-                "premium_segment": {"count": len(premium_products), "percentage": round(len(premium_products)/len(prices)*100, 1), "threshold": f"Above ${round(premium_threshold, 2)}"}
+                "budget_segment": {"count": len(budget_products), "percentage": round(len(budget_products)/len(prices)*100, 1)},
+                "mid_tier_segment": {"count": len(mid_tier), "percentage": round(len(mid_tier)/len(prices)*100, 1)},
+                "premium_segment": {"count": len(premium_products), "percentage": round(len(premium_products)/len(prices)*100, 1)}
             },
-            "category_intelligence": {"top_5_categories": [{"category": k, "count": v} for k, v in top_categories], "diversity_score_percent": round(diversity_score, 1), "unique_categories_detected": len(category_counts)},
-            "promotion_signals": {"products_with_promo_keywords": promotion_count, "promo_percentage": round(promotion_count / len(self.products) * 100, 1) if self.products else 0},
-            "price_gaps": price_gaps[:5],
+            "category_intelligence": {
+                "top_5_categories": [{"category": k, "count": v} for k, v in top_categories], 
+                "hhi_index": hhi_score, "hhi_interpretation": hhi_interp
+            },
+            "promotion_signals": {"products_with_promo_keywords": promotion_count, "promo_percentage": promo_pct},
+            "price_gaps": price_gap_ratios,
             "strategic_anchors": {
-                "top_3_premium": [{"title": p.get("title", "")[:60], "price": round(p.get("current_price", 0), 2)} for p in sorted_products[:3]],
-                "top_3_entry": [{"title": p.get("title", "")[:60], "price": round(p.get("current_price", 0), 2)} for p in sorted_products[-3:] if p.get("current_price")]
-            },
-            "comparison_with_previous_scan": comparison
+                "top_3_premium_prices": [round(p.get("current_price", 0), 2) for p in sorted_products[:3]],
+                "top_3_entry_prices": [round(p.get("current_price", 0), 2) for p in sorted_products[-3:] if p.get("current_price")]
+            }
         }
 
     def _build_strategic_prompt(self, data: Dict[str, Any]) -> Tuple[str, str, int]:
-        """بناء Prompts علمية واستثنائية تلبي احتياجات مدير السوق"""
-        
+        forbidden_rules = """
+        FORBIDDEN PHRASES (Using any fails the task): "focus on quality", "improve marketing", "stand out from competitors", "consider offering", "it may be beneficial", "in today's market", "leverage your strengths".
+        CRITICAL RULE: Every single sentence in your summary and recommendation MUST contain at least one specific number from the data. Sentences with zero numbers are strictly forbidden.
+        NO HEDGING: Never use "could", "might", or "consider". Use "Launch", "Price at", "Cut", "Target".
+        """
+
         if self.tier == 'free':
-            system_prompt = """You are a SENIOR E-COMMERCE MARKET ANALYST with 15+ years of experience.
+            system_prompt = f"""You are a SENIOR E-COMMERCE MARKET ANALYST. Data scientist who talks like a founder's smartest friend. Precise, blunt, zero corporate hedging.
 
-YOUR MISSION: Provide 4 DEEP, SCIENTIFIC, and DATA-DRIVEN strategic insights. A market manager relies on this to make immediate decisions.
+YOUR MISSION: Provide exactly 4 DEEP, SCIENTIFIC, DATA-DRIVEN strategic insights in this EXACT order:
+1. Price Gap Exploitation (product_gap): Identify 1-2 specific dollar ranges where competitor has ZERO products.
+2. Category Concentration Risk (category_dominance): Use HHI index to show where they are strong but exposed.
+3. Promotional Behavior Signal (competitive_threat): High promo % = inventory stress. Low promo % = pricing confidence.
+4. Positioning Verdict (pricing_warfare): Budget/mid/premium split + CoV verdict.
 
-STRICT RULES:
-1. LENGTH & DEPTH: Each insight MUST be 100-150 words. No short, vague statements.
-2. DATA CITATION: You MUST cite exact numbers from the provided JSON (e.g., "76% of catalog sits in the $40-$60 bracket", "Price coefficient of variation is 0.45").
-3. SCIENTIFIC TONE: Use professional market analysis terminology (e.g., "price elasticity", "category concentration", "promotional frequency", "margin compression").
-4. ACTIONABLE: Every insight must end with a specific, tactical recommendation (What to do, which category, approximate price point).
-5. NO GENERIC ADVICE: Do not say "focus on quality" or "improve marketing". Be surgical.
+{forbidden_rules}
+
+UPGRADE TRIGGER: End the ai_recommendation of the 4th insight with a dangling thread: "The optimal entry price for this gap is calculable from margin data — Pro users get the exact price point and unit target."
 
 OUTPUT FORMAT (JSON only):
-{
-  "executive_summary": "A powerful 3-sentence overview of the competitor's market stance, citing their average price, top category, and primary vulnerability.",
+{{
+  "executive_summary": "3-sentence overview: market position, top category with data, primary vulnerability",
   "insights": [
-    {
-      "type": "pricing_warfare|product_gap|competitive_threat|category_dominance",
-      "title": "Professional, punchy 6-8 word title",
-      "summary": "The scientific observation backed by specific data points from the JSON (100-150 words).",
-      "ai_recommendation": "The exact tactical move: Launch X products in Y category at $Z price point within 30 days to capture market share (100-150 words).",
+    {{
+      "type": "product_gap|category_dominance|competitive_threat|pricing_warfare",
+      "title": "Professional 6-8 word headline",
+      "summary": "Scientific observation with specific data points (80-120 words)",
+      "ai_recommendation": "Exact tactical move: Launch X products in Y category at $Z price within 30 days (80-120 words)",
       "severity": "high|medium|low"
-    }
+    }}
   ]
-}"""
+}}"""
             
-            user_prompt = f"""Analyze this competitor data and provide 4 deep, scientific, data-driven insights.
+            user_prompt = f"""{data.get('headline_stats')}
+
+Analyze this competitor data and provide 4 deep, scientific insights.
 Competitor: {data.get('competitor_name')}
 Products Analyzed: {data.get('products_with_pricing')}
 Avg Price: ${data.get('pricing_intelligence', {}).get('average_price', 0):.2f}
-Price Range: ${data.get('pricing_intelligence', {}).get('lowest_price', 0):.2f} - ${data.get('pricing_intelligence', {}).get('highest_price', 0):.2f}
-Top Categories: {data.get('category_intelligence', {}).get('top_5_categories', [])}
 
 Full Data:
 {json.dumps(data, indent=2)}
 """
-            max_tokens = 2500
+            max_tokens = 3000
 
         else:  # Pro, Pro Plus, Enterprise
-            system_prompt = """You are a CHIEF STRATEGY OFFICER (CSO) and former McKinsey Partner specializing in D2C/E-commerce.
+            system_prompt = f"""You are a CHIEF STRATEGY OFFICER (CSO) and former McKinsey Partner specializing in D2C/E-commerce.
 
-YOUR MISSION: Generate a BOARD-READY strategic intelligence dossier with EXECUTABLE financial and operational blueprints.
+YOUR MISSION: Generate a BOARD-READY strategic intelligence dossier with EXECUTABLE financial blueprints.
 
-NON-NEGOTIABLE STANDARDS:
-1. EXTREME SPECIFICITY: Every insight MUST cite hard data (exact prices, counts, percentages, margins).
-2. FINANCIAL MODELING: Recommendations MUST include:
-   - Specific launch price point or range (e.g., "$89-99")
-   - Expected gross margin % (e.g., "Target 60-65% GM")
-   - Timeline in days (e.g., "Execute within 45 days")
-   - Initial unit target (e.g., "500 units initial run")
-   - Success KPI (e.g., "Capture 8% category share in Q3")
-3. STRATEGIC FRAMEWORKS: Implicitly apply concepts like Porter's Five Forces, Price Elasticity, and Whitespace Analysis.
-4. NO VAGUE STATEMENTS: Be surgical, precise, and authoritative.
+{forbidden_rules}
+CROSS-REFERENCE RULE: Every recommendation must reference at least one other insight in this report by name (e.g., "As noted in the Price Gap insight..."). This must read as one connected thesis.
 
 REQUIRED OUTPUT STRUCTURE (JSON only):
-{
-  "executive_summary": "3 sentences: current market position, biggest whitespace opportunity, and most critical threat.",
-  "competitive_scorecard": {
-    "pricing_strategy": {"score": 7, "rationale": "Data-backed reason for the score"},
-    "category_depth": {"score": 6, "rationale": "Data-backed reason for the score"},
-    "brand_positioning": {"score": 8, "rationale": "Data-backed reason for the score"},
-    "market_coverage": {"score": 5, "rationale": "Data-backed reason for the score"}
-  },
+{{
+  "executive_summary": "3 sentences: market position, biggest whitespace opportunity, most critical threat",
+  "competitive_scorecard": {{
+    "pricing_strategy": {{"score": 7, "rationale": "Data-backed reason with numbers"}},
+    "category_depth": {{"score": 6, "rationale": "Data-backed reason with numbers"}},
+    "brand_positioning": {{"score": 8, "rationale": "Data-backed reason with numbers"}},
+    "market_coverage": {{"score": 5, "rationale": "Data-backed reason with numbers"}}
+  }},
   "insights": [
-    {
+    {{
       "type": "pricing_warfare|product_gap|competitive_threat|counter_move|market_timing|brand_positioning|customer_psychology|supply_chain_signal",
       "title": "Board-level headline",
       "summary": "Data-backed situation analysis (100-150 words)",
       "ai_recommendation": "Executable plan with financial metrics (100-150 words)",
       "severity": "critical|high|medium|low"
-    }
+    }}
   ],
-  "financial_execution_blueprint": "A dedicated, highly specific paragraph detailing the exact product to launch, target price, margin goal, and 90-day rollout plan.",
-  "quick_wins": [
-    "Actionable step executable within 7 days with expected impact",
-    "Actionable step executable within 7 days with expected impact",
-    "Actionable step executable within 7 days with expected impact"
-  ],
-  "risk_assessment": "2-3 sentences on the biggest strategic risks if we fail to respond, with a timeline."
-}"""
+  "financial_execution_blueprint": "One paragraph detailing: exact product to launch, target price range, target gross margin %, initial unit count, days-to-execute, and one success KPI.",
+  "quick_wins": ["Actionable step executable within 7 days with expected impact", "...", "..."],
+  "risk_assessment": "2-3 sentences on the biggest strategic risks if we fail to respond in 30 days, with a timeline."
+}}"""
             
-            user_prompt = f"""## COMPETITOR INTELLIGENCE REPORT — {data.get('competitor_name')}
+            user_prompt = f"""{data.get('headline_stats')}
+
+## COMPETITOR INTELLIGENCE REPORT — {data.get('competitor_name')}
 Tier: {data.get('tier_context').upper()}
 Scan Date: {data.get('scan_date')}
 
 {json.dumps(data, indent=2)}
 
 ## DELIVERABLE — 8 STRATEGIC INSIGHTS:
-1. Pricing warfare: Where to surgically undercut + exact price points.
-2. Product gap: Missing categories or orphan price points to exploit.
-3. Competitive threat: Their strongest moat + 90-day neutralization plan.
-4. Counter-move: Asymmetric go-to-market action for the next 45 days.
-5. Market timing: Seasonal/cyclical insight: when to attack, hold, or bundle.
-6. Brand positioning: Emotional territory they own vs. whitespace to claim.
-7. Customer psychology: What their pricing/catalog reveals about target buyer.
-8. Supply chain signal: What product distribution hints about their operations.
+1. Pricing warfare  2. Product gap  3. Competitive threat  4. Counter-move
+5. Market timing  6. Brand positioning  7. Customer psychology  8. Supply chain signal
 
 Return ONLY valid JSON."""
-            max_tokens = 4000
+            max_tokens = 4500
 
         return system_prompt, user_prompt, max_tokens
 
@@ -585,8 +604,8 @@ Return ONLY valid JSON."""
                 
                 scorecard = ai_response.get('competitive_scorecard', {})
                 if scorecard:
-                    scorecard_text = " | ".join([f"{k.replace('_', ' ').title()}: {v.get('score', 0)}/10" for k, v in scorecard.items() if isinstance(v, dict)])
-                    insights.append({"competitor_id": comp_id, "type": "scorecard", "title": "📊 Competitive Scorecard", "summary": scorecard_text, "ai_recommendation": "; ".join([v.get('rationale', '')[:200] for v in scorecard.values() if isinstance(v, dict)]), "severity": "medium", "created_at": timestamp})
+                    scorecard_text = " | ".join([f"{k.replace('_', ' ').title()}: {v.get('score', 0)}/10 — {v.get('rationale', '')[:100]}" for k, v in scorecard.items() if isinstance(v, dict)])
+                    insights.append({"competitor_id": comp_id, "type": "scorecard", "title": "📊 Competitive Scorecard", "summary": scorecard_text, "ai_recommendation": "Focus on the lowest-scoring area for immediate competitive advantage.", "severity": "medium", "created_at": timestamp})
                 
                 for i, insight in enumerate(ai_response.get('insights', [])[:8]):
                     insight_type = str(insight.get('type', 'general')).lower()
@@ -595,7 +614,6 @@ Return ONLY valid JSON."""
                     if severity not in {"critical", "high", "medium", "low"}: severity = "medium"
                     insights.append({"competitor_id": comp_id, "type": insight_type, "title": str(insight.get('title', f'Insight #{i+1}')).strip()[:200], "summary": str(insight.get('summary', '')).strip(), "ai_recommendation": str(insight.get('ai_recommendation', '')).strip(), "severity": severity, "created_at": timestamp})
                 
-                # ✅ ميزة جديدة للمحترفين: المخطط التنفيذي المالي
                 financial_blueprint = ai_response.get('financial_execution_blueprint', '')
                 if financial_blueprint:
                     insights.append({"competitor_id": comp_id, "type": "financial_blueprint", "title": "💰 Financial Execution Blueprint", "summary": "Detailed rollout plan", "ai_recommendation": str(financial_blueprint).strip(), "severity": "critical", "created_at": timestamp})
@@ -843,7 +861,7 @@ class VeloraScraper:
             self.run_dynamic_mode(force_all=False)
 
 def main():
-    parser = argparse.ArgumentParser(description="Velora v3.3 — Scientific & Executive Intelligence Engine", formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(description="Velora v3.4 — The AI Whisperer Edition", formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('url', nargs='?', help='Store URL to scan (optional)')
     parser.add_argument('--continuous', '-c', action='store_true', help='Run continuously')
     parser.add_argument('--force-all', '-f', action='store_true', help='Force scan all competitors')
