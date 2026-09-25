@@ -1,4 +1,5 @@
 import 'dart:math' as math;
+import 'dart:js' as js;
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -789,7 +790,9 @@ class _QuickActions extends StatelessWidget {
           final isWide = constraints.maxWidth > 700;
           final children = [
             _ActionButton(icon: Icons.add_rounded, label: 'Add Competitor', shortcut: 'N', gradient: AppColors.primaryGradient, onTap: () => context.go('/competitors/add')),
-            _ActionButton(icon: Icons.radar_rounded, label: 'Run Scan', shortcut: '⌘R', gradient: AppColors.successGradient, onTap: () => context.go('/scan')),
+            _ActionButton(icon: Icons.radar_rounded, label: 'Run Scan', shortcut: '⌘R', gradient: AppColors.successGradient, onTap: () {
+              js.context.callMethod('open', ['https://github.com/samiazizscarletlustig-max/velora-monorepo/actions']);
+            }),
             _ActionButton(icon: Icons.analytics_rounded, label: 'Analytics', shortcut: '⌘A', gradient: AppColors.warningGradient, onTap: () => context.go('/analytics')),
             _ActionButton(icon: Icons.sticky_note_2_rounded, label: 'Strategic Notes', shortcut: '⌘⇧N', gradient: const LinearGradient(colors: [Color(0xFFEC4899), Color(0xFF8B5CF6)]), onTap: () => context.go('/notes')),
           ];
