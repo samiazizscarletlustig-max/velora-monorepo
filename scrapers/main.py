@@ -1,7 +1,7 @@
 """
  Velora — Advanced Competitive Market Intelligence Engine
 ═══════════════════════════════════════════════════════════════
-PRODUCTION VERSION v3.4.1 — "The AI Whisperer Edition (Fixed Ordering)"
+PRODUCTION VERSION v3.4.3 — "The AI Whisperer Edition (Final Fix)"
 
 ☁️ Cloud-Powered (Hugging Face Router — Multi-Provider Chain)
 🏆 Tier-Aware Scanning (Free / Pro / Pro Plus / Enterprise)
@@ -9,6 +9,8 @@ PRODUCTION VERSION v3.4.1 — "The AI Whisperer Edition (Fixed Ordering)"
    - Free: 4 Surgical, Data-Driven Insights (Upgrade Pressure)
    - Pro: 8 Executive Insights + Scorecard + Financial Blueprint
 📈 Price History Tracking & Strict Rate Limiting
+✅ AI Insights Always On Top (Fixed Ordering)
+✅ No Useless "Stable Pricing" Cards
 
 Architecture:
   [GitHub Actions] → [Scraper] → [AI Analysis] → [Supabase] → [Flutter App]
@@ -92,8 +94,8 @@ class Colors:
 
 def print_banner():
     print(f"\n{Colors.HEADER}{'═'*80}{Colors.ENDC}")
-    print(f"{Colors.OKBLUE} Velora v3.4.1 — The AI Whisperer Edition{Colors.ENDC}")
-    print(f"{Colors.OKCYAN}   Surgical Precision • Zero Fluff • Maximum Token Efficiency{Colors.ENDC}")
+    print(f"{Colors.OKBLUE} Velora v3.4.3 — The AI Whisperer Edition (Final Fix){Colors.ENDC}")
+    print(f"{Colors.OKCYAN}   Surgical Precision • Zero Fluff • AI Always On Top{Colors.ENDC}")
     print(f"{Colors.HEADER}{'═'*80}{Colors.ENDC}\n")
 
 def print_success(msg): print(f"{Colors.OKGREEN}✅ {msg}{Colors.ENDC}")
@@ -284,13 +286,6 @@ class DatabaseManager:
                     insight['competitor_id'] = competitor_id or insights[0].get('competitor_id')
                 if not insight.get('created_at'):
                     insight['created_at'] = datetime.now(timezone.utc).isoformat()
-            
-            if insights:
-                comp_id = insights[0].get('competitor_id')
-                if comp_id:
-                    try:
-                        self.supabase.table("ai_insights").delete().eq("competitor_id", comp_id).eq("type", "trend").execute()
-                    except: pass
             
             self.supabase.table("ai_insights").insert(insights).execute()
             self.logger.info(f"Saved {len(insights)} AI insights")
@@ -810,21 +805,31 @@ class VeloraScraper:
             self.db.save_price_history(cleaned_products, competitor_id)
             previous_scan = self.db.get_previous_scan_data(competitor_id)
             
-            # ✅ 1. Run Trend Analysis FIRST (only if history exists) -> older timestamp
+            # ✅ 1. Trend Analysis FIRST (only if history exists) -> older timestamp -> يظهر تحت الـ AI
             if has_history:
+                # Delete OLD trend insights from previous scan
+                try:
+                    self.supabase.table("ai_insights").delete().eq("competitor_id", competitor_id).eq("type", "trend").execute()
+                except Exception:
+                    pass
                 try:
                     print(f"\n📈 Analyzing price trends for {competitor_name}...")
                     trend_analyzer = TrendAnalyzer(competitor_id, products)
                     trend_data = trend_analyzer.analyze_price_trends()
                     if "error" not in trend_data and trend_data.get("insights"):
-                        self.db.save_trend_insights(trend_data["insights"])
-                        print_success(f"Saved {len(trend_data['insights'])} trend insights")
+                        # ✅ v3.4.3: Remove useless "stable" cards - keep only real price movements
+                        moving = [i for i in trend_data["insights"] if "stable" not in str(i.get("title", "")).lower()]
+                        if moving:
+                            self.db.save_trend_insights(moving)
+                            print_success(f"Saved {len(moving)} real price-movement trends")
+                        else:
+                            print_info("⏭️ No real price movements detected — skipping trend cards")
                 except Exception as e:
                     self.logger.error(f"Trend analysis failed: {e}")
             else:
                 print_info("⏭️ First scan — skipping trend analysis (no price history yet)")
-
-            # ✅ 2. Run AI Analysis SECOND -> newest timestamp -> appears on top!
+            
+            # ✅ 2. AI Analysis SECOND -> newest timestamp -> appears on top!
             intel_engine = MarketIntelligenceEngine(competitor, products, previous_scan)
             insights = intel_engine.generate_all_insights()
             
@@ -882,7 +887,7 @@ class VeloraScraper:
             self.run_dynamic_mode(force_all=False)
 
 def main():
-    parser = argparse.ArgumentParser(description="Velora v3.4.1 — The AI Whisperer Edition", formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(description="Velora v3.4.3 — The AI Whisperer Edition (Final Fix)", formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('url', nargs='?', help='Store URL to scan (optional)')
     parser.add_argument('--continuous', '-c', action='store_true', help='Run continuously')
     parser.add_argument('--force-all', '-f', action='store_true', help='Force scan all competitors')
