@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "add": "Add",
     "cancel": "Cancel",
@@ -52,7 +52,7 @@
   },
   "insights": {
     "title": "AI Insights",
-    "subtitle": "Strategic intelligence from Gemini AI",
+    "subtitle": "Strategic intelligence from Velora AI Engine",
     "search_hint": "Search insights...",
     "filter_all": "All",
     "filter_critical": "Critical",

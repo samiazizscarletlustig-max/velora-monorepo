@@ -1,4 +1,4 @@
-﻿import 'package:flutter/foundation.dart';
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 // ═══════════════════════════════════════════════════════════
@@ -110,7 +110,9 @@ class InsightPreview {
       severity: (map['severity'] as String?)?.toLowerCase() ?? 'low',
       createdAt: _safeParseDate(map['created_at']) ?? DateTime.now(),
       aiRecommendation: map['ai_recommendation'] as String?,
-      competitorName: map['competitor_name''linked_competitor_id'] ?? map['competitor_id']) as String?,
+      competitorName: map['competitor_name'] as String?,
+      // ✅ Fallback: استخدام competitor_id إذا لم يوجد linked_competitor_id
+      linkedCompetitorId: (map['linked_competitor_id'] ?? map['competitor_id']) as String?,
     );
   }
 
@@ -179,7 +181,18 @@ class DashboardRepository {
   Future<int> _countPriceChanges({String? userId}) async {
     try {
       final baseQuery = _client.from('price_history').select('id');
-      final response = await (userId == null ? baseQuery : baseQuery.eq('user_id''ai_insights').select('''
+      final response = await (userId == null ? baseQuery : baseQuery.eq('user_id', userId));
+      return (response as List).length;
+    } catch (e) {
+      return 0;
+    }
+  }
+
+  // ✅ FIXED: استخدام competitor_id بدلاً من linked_competitor_id في استعلام الـ Join
+  Future<List<InsightPreview>> getRecentInsights({int limit = 5}) async {
+    final userId = _getUserId();
+    try {
+      final baseQuery = _client.from('ai_insights').select('''
             id, title, summary, severity, created_at, ai_recommendation, competitor_id,
             competitors:competitor_id ( name )
           ''');

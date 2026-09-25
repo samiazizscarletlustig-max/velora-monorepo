@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "add": "Añadir",
     "cancel": "Cancelar",
@@ -52,7 +52,7 @@
   },
   "insights": {
     "title": "Análisis IA",
-    "subtitle": "Inteligencia estratégica de Gemini AI",
+    "subtitle": "Inteligencia estratégica de Velora AI Engine",
     "search_hint": "Buscar análisis...",
     "filter_all": "Todos",
     "filter_critical": "Crítico",

@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "add": "追加",
     "cancel": "キャンセル",
@@ -52,7 +52,7 @@
   },
   "insights": {
     "title": "AIインサイト",
-    "subtitle": "Gemini AIからの戦略的インテリジェンス",
+    "subtitle": "Velora AI Engineからの戦略的インテリジェンス",
     "search_hint": "インサイトを検索...",
     "filter_all": "すべて",
     "filter_critical": "重大",

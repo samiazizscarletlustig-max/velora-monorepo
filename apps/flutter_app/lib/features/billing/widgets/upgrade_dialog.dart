@@ -1,7 +1,67 @@
-﻿import 'dart:ui';
+import 'dart:ui';
 import 'package:flutter/material.dart';
-import 'package:url_launcher/url_launcher.dart''ve reached the 3-competitor limit"
-    String? targetTier, // 'pro' | 'pro_plus''Unlock More Power',
+import 'package:url_launcher/url_launcher.dart';
+
+class UpgradeDialog {
+  static Future<bool?> show(
+    BuildContext context, {
+    required String reason, // مثل: "You've reached the 3-competitor limit"
+    String? targetTier, // 'pro' | 'pro_plus' | null (يعرض جميع الخطط)
+  }) {
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: true,
+      barrierColor: Colors.black.withOpacity(0.7),
+      builder: (ctx) => _UpgradeDialogContent(reason: reason, targetTier: targetTier),
+    );
+  }
+}
+
+class _UpgradeDialogContent extends StatelessWidget {
+  final String reason;
+  final String? targetTier;
+
+  const _UpgradeDialogContent({required this.reason, this.targetTier});
+
+  @override
+  Widget build(BuildContext context) {
+    final primaryColor = Theme.of(context).colorScheme.primary;
+
+    return Dialog(
+      backgroundColor: Colors.transparent,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(24),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Container(
+            width: 520,
+            padding: const EdgeInsets.all(36),
+            decoration: BoxDecoration(
+              color: const Color(0xFF161B26).withOpacity(0.95),
+              borderRadius: BorderRadius.circular(24),
+              border: Border.all(color: primaryColor.withOpacity(0.4), width: 1.5),
+              boxShadow: [
+                BoxShadow(
+                  color: primaryColor.withOpacity(0.25),
+                  blurRadius: 40,
+                  offset: const Offset(0, 15),
+                ),
+              ],
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Container(
+                  padding: const EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    color: primaryColor.withOpacity(0.1),
+                    shape: BoxShape.circle,
+                  ),
+                  child: Icon(Icons.lock_outline, color: primaryColor, size: 40),
+                ),
+                const SizedBox(height: 24),
+                const Text(
+                  'Unlock More Power',
                   style: TextStyle(
                     fontSize: 26,
                     fontWeight: FontWeight.bold,
@@ -10,7 +70,7 @@ import 'package:url_launcher/url_launcher.dart''ve reached the 3-competitor limi
                 ),
                 const SizedBox(height: 8),
                 Text(
-                  '',
+                  'افتح المزيد من القدرات',
                   style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.5)),
                 ),
                 const SizedBox(height: 20),
@@ -66,7 +126,7 @@ import 'package:url_launcher/url_launcher.dart''ve reached the 3-competitor limi
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(false),
                   child: const Text(
-                    '',
+                    'Maybe later / لاحقاً',
                     style: TextStyle(color: Colors.white54, fontSize: 14),
                   ),
                 ),

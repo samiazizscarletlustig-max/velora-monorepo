@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 
 class SmartNotesPreview extends StatelessWidget {
   const SmartNotesPreview({super.key});
@@ -34,9 +34,9 @@ class SmartNotesPreview extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 48),
-          const _NavItem(icon: Icons.edit_note, label: '', isSelected: true),
-          const _NavItem(icon: Icons.analytics, label: '', isSelected: false),
-          const _NavItem(icon: Icons.account_tree, label: '', isSelected: false),
+          const _NavItem(icon: Icons.edit_note, label: 'Smart Notes\nملاحظات ذكية', isSelected: true),
+          const _NavItem(icon: Icons.analytics, label: 'Analysis Hub\nمركز التحليل', isSelected: false),
+          const _NavItem(icon: Icons.account_tree, label: 'Strategy Canvas\nلوحة الاستراتيجية', isSelected: false),
         ],
       ),
     );
@@ -45,7 +45,7 @@ class SmartNotesPreview extends StatelessWidget {
   Widget _buildMainContent(BuildContext context) {
     return Column(
       children: [
-        _buildHeader(context, ''),
+        _buildHeader(context, 'Q4 Competitor Response / رد المنافسين للربع الرابع'),
         const Divider(height: 1, color: Color(0xFF222938)),
         _buildToolbar(context),
         Expanded(
@@ -55,14 +55,14 @@ class SmartNotesPreview extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  '',
+                  'Q4 Pricing Strategy\nاستراتيجية التسعير للربع الرابع',
                   style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, height: 1.3),
                 ),
                 const SizedBox(height: 32),
                 _buildCallout(context),
                 const SizedBox(height: 24),
                 const Text(
-                  '',
+                  'We observed a 12% price drop from Noon on key electronic SKUs ahead of White Friday. To counter this without sacrificing margins, we should bundle high-margin accessories with flagship devices.\n\nلاحظنا انخفاضاً بنسبة 12٪ في أسعار نون على منتجات الإلكترونيات الرئيسية قبل الجمعة البيضاء. ولمواجهة ذلك دون التضحية بهوامش الربح، يجب علينا تقديم حزم ملحقات ذات هوامش ربح عالية مع الأجهزة الرئيسية.',
                   style: TextStyle(fontSize: 16, height: 1.8, color: Colors.white70),
                 ),
                 const SizedBox(height: 24),

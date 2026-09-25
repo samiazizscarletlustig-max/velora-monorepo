@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import '../widgets/ai_chat_panel.dart';
 
 class AIChatScreen extends StatelessWidget {
@@ -10,7 +10,7 @@ class AIChatScreen extends StatelessWidget {
       backgroundColor: const Color(0xFF0A0E1A),
       appBar: AppBar(
         backgroundColor: const Color(0xFF0A0E1A),
-        title: const Text(''),
+        title: const Text('AI Chat / محادثة الذكاء الاصطناعي'),
         bottom: const PreferredSize(
           preferredSize: Size.fromHeight(1),
           child: Divider(height: 1, color: Color(0xFF222938)),
@@ -21,7 +21,7 @@ class AIChatScreen extends StatelessWidget {
           const Expanded(
             child: Center(
               child: Text(
-                '',
+                'Main Content Area\nالمنطقة الرئيسية',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: Colors.white54, fontSize: 18),
               ),

@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "add": "إضافة",
     "cancel": "إلغاء",
@@ -52,7 +52,7 @@
   },
   "insights": {
     "title": "الرؤى الذكية",
-    "subtitle": "ذكاء استراتيجي من Gemini AI",
+    "subtitle": "ذكاء استراتيجي من Velora AI Engine",
     "search_hint": "ابحث في الرؤى...",
     "filter_all": "الكل",
     "filter_critical": "حرج",

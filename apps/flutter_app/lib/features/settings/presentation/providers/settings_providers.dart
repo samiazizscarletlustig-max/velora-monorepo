@@ -1,4 +1,4 @@
-﻿import 'package:flutter/material.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/settings_repository.dart';
 import '../../data/settings_data.dart';
@@ -89,13 +89,13 @@ final setNotificationsEnabledProvider = Provider<Future<void> Function(bool)>((r
 // Auto Refresh Provider
 // ═══════════════════════════════════════════
 
-/// Provider لجلب حالة الRefresh التلقائي
+/// Provider لجلب حالة التحديث التلقائي
 final autoRefreshEnabledProvider = FutureProvider<bool>((ref) async {
   final repository = ref.watch(settingsRepositoryProvider);
   return repository.getAutoRefreshEnabled();
 });
 
-/// Provider لتغيير حالة الRefresh التلقائي
+/// Provider لتغيير حالة التحديث التلقائي
 final setAutoRefreshEnabledProvider = Provider<Future<void> Function(bool)>((ref) {
   return (bool enabled) async {
     final repository = ref.read(settingsRepositoryProvider);
@@ -109,7 +109,7 @@ final setAutoRefreshEnabledProvider = Provider<Future<void> Function(bool)>((ref
 // Supabase Status Provider
 // ═══════════════════════════════════════════
 
-/// Provider لفحص حالة اNoتصال بـ Supabase (كـ SupabaseStatus object)
+/// Provider لفحص حالة الاتصال بـ Supabase (كـ SupabaseStatus object)
 final supabaseStatusProvider = FutureProvider<SupabaseStatus>((ref) async {
   final repository = ref.watch(settingsRepositoryProvider);
   return repository.checkSupabaseStatus();
@@ -142,7 +142,7 @@ final clearCacheProvider = Provider<Future<bool> Function()>((ref) {
 // App Info Provider
 // ═══════════════════════════════════════════
 
-/// Provider لجلب Info التطبيق (كـ AppInfo object)
+/// Provider لجلب معلومات التطبيق (كـ AppInfo object)
 final appInfoProvider = Provider<AppInfo>((ref) {
   final repository = ref.watch(settingsRepositoryProvider);
   return repository.getAppInfo();

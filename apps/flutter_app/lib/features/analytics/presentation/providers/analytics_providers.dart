@@ -1,4 +1,4 @@
-﻿import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../data/analytics_repository.dart';
 
 // ═══════════════════════════════════════════
@@ -32,17 +32,17 @@ final insightsTimelineProvider = FutureProvider<List<ChartDataPoint>>((ref) asyn
   return repository.getInsightsTimeline();
 });
 
-/// Provider لأفضل Competitors (Bar Chart 📊)
+/// Provider لأفضل المنافسين (Bar Chart 📊)
 final topCompetitorsProvider = FutureProvider<List<ChartDataPoint>>((ref) async {
   final repository = ref.watch(analyticsRepositoryProvider);
   return repository.getTopCompetitors();
 });
 
 // ═══════════════════════════════════════════
-// Refresh Provider (لReload كل البيانات)
+// Refresh Provider (لإعادة تحميل كل البيانات)
 // ═══════════════════════════════════════════
 
-/// Provider لReload كل بيانات Analytics
+/// Provider لإعادة تحميل كل بيانات Analytics
 final refreshAnalyticsProvider = Provider<void Function(WidgetRef)>((ref) {
   return (WidgetRef ref) {
     ref.invalidate(analyticsStatsProvider);

@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "add": "추가",
     "cancel": "취소",
@@ -52,7 +52,7 @@
   },
   "insights": {
     "title": "AI 인사이트",
-    "subtitle": "Gemini AI의 전략적 인텔리전스",
+    "subtitle": "Velora AI Engine의 전략적 인텔리전스",
     "search_hint": "인사이트 검색...",
     "filter_all": "전체",
     "filter_critical": "심각",

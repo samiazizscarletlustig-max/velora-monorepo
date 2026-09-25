@@ -1,4 +1,4 @@
-﻿import 'dart:ui';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../data/tier_repository.dart';
@@ -13,7 +13,7 @@ class BillingScreen extends StatelessWidget {
       backgroundColor: const Color(0xFF0A0E1A),
       appBar: AppBar(
         backgroundColor: const Color(0xFF0A0E1A),
-        title: const Text(''),
+        title: const Text('Plans & Pricing / الخطط والأسعار'),
         bottom: const PreferredSize(
           preferredSize: Size.fromHeight(1),
           child: Divider(height: 1, color: Color(0xFF222938)),
@@ -29,7 +29,7 @@ class BillingScreen extends StatelessWidget {
             child: Column(
               children: [
                 const Text(
-                  '',
+                  'Unlock Your Competitive Edge\nافتح آفاقك التنافسية',
                   textAlign: TextAlign.center,
                   style: TextStyle(
                     fontSize: 36,
@@ -40,7 +40,7 @@ class BillingScreen extends StatelessWidget {
                 ),
                 const SizedBox(height: 16),
                 Text(
-                  '',
+                  'Your current plan: ${currentTier.toUpperCase()}\nخططتك الحالية',
                   textAlign: TextAlign.center,
                   style: const TextStyle(fontSize: 16, color: Colors.white54),
                 ),
@@ -54,7 +54,7 @@ class BillingScreen extends StatelessWidget {
                     Expanded(
                       child: _PricingCard(
                         title: 'Free',
-                        titleAr: '',
+                        titleAr: 'مجاني',
                         price: '\$0',
                         subtitle: 'Perfect to start',
                         features: const [
@@ -75,7 +75,7 @@ class BillingScreen extends StatelessWidget {
                         offset: const Offset(0, -12),
                         child: _PricingCard(
                           title: 'Pro',
-                          titleAr: '',
+                          titleAr: 'احترافي',
                           price: '\$29',
                           period: '/mo',
                           subtitle: 'For growing brands',
@@ -98,7 +98,7 @@ class BillingScreen extends StatelessWidget {
                     Expanded(
                       child: _PricingCard(
                         title: 'Pro Plus',
-                        titleAr: '',
+                        titleAr: 'متقدم',
                         price: '\$79',
                         period: '/mo',
                         subtitle: 'For serious teams',
@@ -120,7 +120,7 @@ class BillingScreen extends StatelessWidget {
                     Expanded(
                       child: _PricingCard(
                         title: 'Enterprise',
-                        titleAr: '',
+                        titleAr: 'مؤسسي',
                         price: '\$199',
                         period: '/mo',
                         subtitle: 'For agencies & corps',
@@ -167,7 +167,7 @@ class BillingScreen extends StatelessWidget {
               border: Border(bottom: BorderSide(color: Color(0xFF222938))),
             ),
             child: const Text(
-              '',
+              'Feature Comparison / مقارنة الميزات',
               style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
             ),
           ),

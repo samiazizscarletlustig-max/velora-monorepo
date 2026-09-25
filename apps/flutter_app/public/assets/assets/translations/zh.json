@@ -1,4 +1,4 @@
-{
+﻿{
   "common": {
     "add": "添加",
     "cancel": "取消",
@@ -52,7 +52,7 @@
   },
   "insights": {
     "title": "AI 洞察",
-    "subtitle": "来自 Gemini AI 的战略情报",
+    "subtitle": "来自 Velora AI Engine 的战略情报",
     "search_hint": "搜索洞察...",
     "filter_all": "全部",
     "filter_critical": "严重",
