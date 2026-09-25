@@ -1,72 +1,8 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import '../providers/auth_providers.dart';
-
-class AuthScreen extends ConsumerStatefulWidget {
-  const AuthScreen({super.key});
-
-  @override
-  ConsumerState<AuthScreen> createState() => _AuthScreenState();
-}
-
-class _AuthScreenState extends ConsumerState<AuthScreen> {
-  final _formKey = GlobalKey<FormState>();
-  final _emailCtrl = TextEditingController();
-  final _passCtrl = TextEditingController();
-  final _confirmCtrl = TextEditingController();
-
-  bool _isLogin = true;
-  bool _loading = false;
-  bool _obscure = true;
-  String? _error;
-
-  @override
-  void dispose() {
-    _emailCtrl.dispose();
-    _passCtrl.dispose();
-    _confirmCtrl.dispose();
-    super.dispose();
-  }
-
-  Future<void> _submit() async {
-    if (!(_formKey.currentState?.validate() ?? false)) return;
-    
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
-    try {
-      final repo = ref.read(authRepositoryProvider);
-      
-      if (_isLogin) {
-        await repo.signIn(
-          email: _emailCtrl.text,
-          password: _passCtrl.text,
-        );
-      } else {
-        // تسجيل حساب جديد
-        final response = await repo.signUp(
-          email: _emailCtrl.text,
-          password: _passCtrl.text,
-        );
-        
-        // إذا لم يتم الدخول تلقائياً بعد التسجيل، ندخل يدوياً
-        if (response != null && Supabase.instance.client.auth.currentSession == null) {
-           await repo.signIn(
-            email: _emailCtrl.text,
-            password: _passCtrl.text,
-          );
-        }
-      }
-      // النجاح يتم التعامل معه تلقائياً عبر goRouter redirect
-      
-    } on AuthException catch (e) {
-      setState(() => _error = _humanize(e.message));
-    } catch (e) {
-      setState(() => _error = 'حدث خطأ غير متوقع. يرجى المحاولة لاحقاً.');
+import '../providers/auth_providers.dart''حدث Error غير متوقع. يرجى المحاولة Noحقاً.');
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -75,11 +11,11 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
   String _humanize(String msg) {
     final m = msg.toLowerCase();
     if (m.contains('invalid login') || m.contains('invalid credentials')) 
-      return 'البريد الإلكتروني أو كلمة المرور غير صحيحة.';
+      return '';
     if (m.contains('already registered') || m.contains('user already registered')) 
-      return 'هذا البريد الإلكتروني مسجل بالفعل.';
+      return '';
     if (m.contains('password')) 
-      return 'كلمة المرور يجب أن تكون 6 أحرف على الأقل.';
+      return '';
     return msg;
   }
 
@@ -106,7 +42,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 mainAxisAlignment: MainAxisAlignment.center,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // الشعار والعنوان
+                  // 
                   Icon(Icons.radar_rounded, size: 64, color: const Color(0xFF34D399)),
                   const SizedBox(height: 16),
                   Text(
@@ -118,36 +54,36 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                   ),
                   const SizedBox(height: 8),
                   Text(
-                    _isLogin ? 'مرحباً بعودتك' : 'إنشاء حساب جديد',
+                    _isLogin ? '' : '',
                     textAlign: TextAlign.center,
                     style: GoogleFonts.manrope(fontSize: 16, color: const Color(0xFF8A93A8)),
                   ),
                   const SizedBox(height: 32),
 
-                  // حقل الإيميل
+                  // 
                   TextFormField(
                     controller: _emailCtrl,
                     keyboardType: TextInputType.emailAddress,
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
-                      labelText: 'البريد الإلكتروني',
+                      labelText: 'Email',
                       labelStyle: const TextStyle(color: Color(0xFF8A93A8)),
                       filled: true,
                       fillColor: const Color(0xFF131A2B),
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                       prefixIcon: const Icon(Icons.mail_outline, color: Color(0xFF8A93A8)),
                     ),
-                    validator: (v) => (v == null || !v.contains('@')) ? 'أدخل بريداً إلكترونياً صحيحاً' : null,
+                    validator: (v) => (v == null || !v.contains('@')) ? '' : null,
                   ),
                   const SizedBox(height: 16),
 
-                  // حقل كلمة المرور
+                  // 
                   TextFormField(
                     controller: _passCtrl,
                     obscureText: _obscure,
                     style: const TextStyle(color: Colors.white),
                     decoration: InputDecoration(
-                      labelText: 'كلمة المرور',
+                      labelText: 'Password',
                       labelStyle: const TextStyle(color: Color(0xFF8A93A8)),
                       filled: true,
                       fillColor: const Color(0xFF131A2B),
@@ -158,10 +94,10 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                         onPressed: () => setState(() => _obscure = !_obscure),
                       ),
                     ),
-                    validator: (v) => (v == null || v.length < 6) ? '6 أحرف على الأقل' : null,
+                    validator: (v) => (v == null || v.length < 6) ? '' : null,
                   ),
                   
-                  // تأكيد كلمة المرور (للتسجيل فقط)
+                  // 
                   if (!_isLogin) ...[
                     const SizedBox(height: 16),
                     TextFormField(
@@ -169,18 +105,18 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                       obscureText: _obscure,
                       style: const TextStyle(color: Colors.white),
                       decoration: InputDecoration(
-                        labelText: 'تأكيد كلمة المرور',
+                        labelText: '',
                         labelStyle: const TextStyle(color: Color(0xFF8A93A8)),
                         filled: true,
                         fillColor: const Color(0xFF131A2B),
                         border: OutlineInputBorder(borderRadius: BorderRadius.circular(12), borderSide: BorderSide.none),
                         prefixIcon: const Icon(Icons.lock_outline, color: Color(0xFF8A93A8)),
                       ),
-                      validator: (v) => v != _passCtrl.text ? 'كلمات المرور غير متطابقة' : null,
+                      validator: (v) => v != _passCtrl.text ? '' : null,
                     ),
                   ],
 
-                  // رسالة الخطأ
+                  // 
                   if (_error != null) ...[
                     const SizedBox(height: 16),
                     Container(
@@ -202,7 +138,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
 
                   const SizedBox(height: 24),
 
-                  // زر الإجراء
+                  // 
                   ElevatedButton(
                     onPressed: _loading ? null : _submit,
                     style: ElevatedButton.styleFrom(
@@ -214,19 +150,19 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                     ),
                     child: _loading 
                       ? const SizedBox(height: 20, width: 20, child: CircularProgressIndicator(strokeWidth: 3, color: Color(0xFF06281F)))
-                      : Text(_isLogin ? 'تسجيل الدخول' : 'إنشاء حساب'),
+                      : Text(_isLogin ? '' : ''),
                   ),
 
                   const SizedBox(height: 16),
 
-                  // التبديل بين الدخول والتسجيل
+                  // 
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(_isLogin ? 'ليس لديك حساب؟ ' : 'لديك حساب بالفعل؟ ', style: const TextStyle(color: Color(0xFF8A93A8))),
+                      Text(_isLogin ? '' : '', style: const TextStyle(color: Color(0xFF8A93A8))),
                       GestureDetector(
                         onTap: _loading ? null : _toggleMode,
-                        child: Text(_isLogin ? 'إنشاء حساب' : 'تسجيل الدخول', 
+                        child: Text(_isLogin ? '' : '', 
                           style: const TextStyle(color: Color(0xFF34D399), fontWeight: FontWeight.bold)),
                       ),
                     ],

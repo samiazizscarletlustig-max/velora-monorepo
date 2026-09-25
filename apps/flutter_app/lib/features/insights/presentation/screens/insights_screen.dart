@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:math' as math;  
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -11,68 +11,7 @@ import '../../../../core/config/app_colors.dart';
 import '../../../../core/widgets/premium_widgets.dart';
 import '../../../../core/extensions/widget_extensions.dart';
 import '../providers/insights_providers.dart';
-import '../../data/insights_repository.dart'; // ✅ تم إصلاح الخطأ المطبعي هنا
-
-// ═══════════════════════════════════════════════════════════
-// 💡 INSIGHTS SCREEN — AI PREMIUM EDITION
-// Strategic intelligence hub with expandable insights.
-// ══════════════════════════════════════════════════════════
-class InsightsScreen extends ConsumerStatefulWidget {
-  const InsightsScreen({super.key});
-
-  @override
-  ConsumerState<InsightsScreen> createState() => _InsightsScreenState();
-}
-
-class _InsightsScreenState extends ConsumerState<InsightsScreen> {
-  final _searchController = TextEditingController();
-  final _searchFocusNode = FocusNode();
-  late Timer _refreshTimer;
-
-  @override
-  void initState() {
-    super.initState();
-    
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
-      if (mounted) {
-        ref.invalidate(insightsListProvider);
-        ref.invalidate(insightsStatsProvider);
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _refreshTimer.cancel();
-    _searchController.dispose();
-    _searchFocusNode.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final statsAsync = ref.watch(insightsStatsProvider);
-    final filteredInsights = ref.watch(filteredInsightsProvider);
-    final allInsightsAsync = ref.watch(insightsListProvider);
-    final currentFilter = ref.watch(severityFilterProvider);
-
-    return Scaffold(
-      backgroundColor: Colors.transparent,
-      body: AnimatedGradientBackground(
-        child: CustomScrollView(
-          physics: const BouncingScrollPhysics(),
-          slivers: [
-            SliverToBoxAdapter(
-              child: _HeroHeader(
-                statsAsync: statsAsync,
-                searchController: _searchController,
-                searchFocusNode: _searchFocusNode,
-                onSearchChanged: (v) => setState(() {
-                  ref.read(insightsSearchQueryProvider.notifier).state = v;
-                }),
-                onClear: () {
-                  _searchController.clear();
-                  ref.read(insightsSearchQueryProvider.notifier).state = '';
+import '../../data/insights_repository.dart''';
                 },
               ).animate().fadeIn(duration: 500.ms).slideY(begin: -0.1),
             ),
@@ -263,112 +202,7 @@ class _HeroHeader extends StatelessWidget {
             focusNode: searchFocusNode,
             onChanged: onSearchChanged,
             onClear: onClear,
-            totalCount: statsAsync.valueOrNull?['total'] ?? 0,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════
-// 🔍 PREMIUM SEARCH BAR (✅ تم الإصلاح والمحاذاة المثالية)
-// ══════════════════════════════════════════════════════════
-class _PremiumSearchBar extends StatefulWidget {
-  final TextEditingController controller;
-  final FocusNode focusNode;
-  final ValueChanged<String> onChanged;
-  final VoidCallback onClear;
-  final int totalCount;
-
-  const _PremiumSearchBar({
-    required this.controller,
-    required this.focusNode,
-    required this.onChanged,
-    required this.onClear,
-    required this.totalCount,
-  });
-
-  @override
-  State<_PremiumSearchBar> createState() => _PremiumSearchBarState();
-}
-
-class _PremiumSearchBarState extends State<_PremiumSearchBar> {
-  bool _focused = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    final hasQuery = widget.controller.text.isNotEmpty;
-
-    return Focus(
-      onFocusChange: (f) => setState(() => _focused = f),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        height: 56, // ✅ تم زيادة الارتفاع قليلاً لمحاذاة عمودية مثالية
-        decoration: BoxDecoration(
-          color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
-          borderRadius: BorderRadius.circular(16),
-          border: Border.all(
-            color: _focused
-                ? AppColors.purple
-                : (isDark ? AppColors.darkBorder : AppColors.lightBorder),
-            width: _focused ? 1.5 : 1,
-          ),
-          boxShadow: [
-            BoxShadow(
-              color: _focused
-                  ? AppColors.purple.withOpacity(0.15)
-                  : Colors.black.withOpacity(isDark ? 0.2 : 0.05),
-              blurRadius: _focused ? 12 : 8,
-              offset: const Offset(0, 4),
-            ),
-          ],
-        ),
-        child: Row(
-          children: [
-            const SizedBox(width: 16),
-            // ✅ تم إزالة AnimatedSwitcher غير الضروري الذي كان يسبب وميضاً
-            Icon(
-              Icons.search_rounded,
-              color: _focused
-                  ? AppColors.purple
-                  : (isDark ? AppColors.darkSecondary : AppColors.lightSecondary),
-              size: 22,
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: TextField(
-                controller: widget.controller,
-                focusNode: widget.focusNode,
-                onChanged: widget.onChanged,
-                style: TextStyle(
-                  fontSize: 15,
-                  color: isDark ? AppColors.darkPrimary : AppColors.lightPrimary,
-                  fontWeight: FontWeight.w500,
-                ),
-                decoration: InputDecoration(
-                  border: InputBorder.none,
-                  hintText: 'Search insights, trends, competitors...',
-                  hintStyle: TextStyle(
-                    color: isDark ? AppColors.darkSecondary : AppColors.lightSecondary,
-                    fontSize: 15,
-                  ),
-                  isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 16), // ✅ هذا هو سر المحاذاة المثالية
-                ),
-              ),
-            ),
-            if (hasQuery) ...[
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                margin: const EdgeInsets.only(right: 8),
-                decoration: BoxDecoration(
-                  color: AppColors.purple.withOpacity(0.1),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  '${widget.totalCount}',
+            totalCount: statsAsync.valueOrNull?['total''Search insights, trends, competitors...''${widget.totalCount}',
                   style: const TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/chat_message_model.dart';
@@ -19,7 +19,7 @@ class _AIChatPanelState extends State<AIChatPanel> with SingleTickerProviderStat
   final List<ChatMessage> _messages = [
     ChatMessage(
       id: '1',
-      content: 'Hello! I am Velora AI. How can I assist you with your strategic planning today?\nمرحباً! أنا مساعد فيلورا الذكي. كيف يمكنني مساعدتك في التخطيط الاستراتيجي اليوم؟',
+      content: '',
       role: MessageRole.model,
       timestamp: DateTime.now().subtract(const Duration(minutes: 5)),
     ),
@@ -78,7 +78,7 @@ class _AIChatPanelState extends State<AIChatPanel> with SingleTickerProviderStat
         _messages.removeWhere((m) => m.id == 'thinking');
         _messages.add(ChatMessage(
           id: DateTime.now().millisecondsSinceEpoch.toString(),
-          content: 'Based on the latest data, **Noon** has dropped their prices by 12% on flagship electronics. \n\nبناءً على أحدث البيانات، قامت **نون** بتخفيض أسعارها بنسبة 12% على الإلكترونيات الرائدة.',
+          content: '',
           role: MessageRole.model,
           timestamp: DateTime.now(),
           citations: const [
@@ -160,7 +160,7 @@ class _AIChatPanelState extends State<AIChatPanel> with SingleTickerProviderStat
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text('Velora AI', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-                Text('Strategic Assistant / مساعد استراتيجي', style: TextStyle(color: Colors.white54, fontSize: 12)),
+                Text('', style: TextStyle(color: Colors.white54, fontSize: 12)),
               ],
             ),
           ),
@@ -239,7 +239,7 @@ class _AIChatPanelState extends State<AIChatPanel> with SingleTickerProviderStat
                     const SizedBox(height: 16),
                     const Divider(color: Color(0xFF222938), height: 1),
                     const SizedBox(height: 12),
-                    const Text('Sources / المصادر:', style: TextStyle(fontSize: 12, color: Colors.white54, fontWeight: FontWeight.bold)),
+                    const Text('', style: TextStyle(fontSize: 12, color: Colors.white54, fontWeight: FontWeight.bold)),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,
@@ -315,7 +315,7 @@ class _AIChatPanelState extends State<AIChatPanel> with SingleTickerProviderStat
             ),
             const SizedBox(width: 12),
             Text(
-              'Analyzing data...\nجاري تحليل البيانات...',
+              '',
               style: TextStyle(color: Theme.of(context).colorScheme.primary, fontSize: 13),
             ),
           ],

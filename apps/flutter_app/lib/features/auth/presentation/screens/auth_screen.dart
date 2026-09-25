@@ -1,37 +1,8 @@
-import 'dart:math' as math;
+﻿import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-
-class AuthScreen extends ConsumerStatefulWidget {
-  const AuthScreen({super.key});
-
-  @override
-  ConsumerState<AuthScreen> createState() => _AuthScreenState();
-}
-
-class _AuthScreenState extends ConsumerState<AuthScreen> {
-  bool _loading = false;
-  String? _error;
-
-  // ✅ تسجيل الدخول بـ Google فقط (ينشئ الحساب تلقائياً أول مرة)
-  Future<void> _signInWithGoogle() async {
-    setState(() {
-      _loading = true;
-      _error = null;
-    });
-
-    try {
-      await Supabase.instance.client.auth.signInWithOAuth(
-        OAuthProvider.google,
-        redirectTo: '${Uri.base.origin}/',  // ✅ إضافة / للتطابق مع Supabase
-      );
-    } catch (e) {
-      if (mounted) {
-        setState(() {
-          _loading = false;
-          _error = 'Could not open Google sign-in. Please try again.';
+import 'package:supabase_flutter/supabase_flutter.dart''${Uri.base.origin}/''Could not open Google sign-in. Please try again.';
         });
       }
     }
@@ -88,49 +59,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  'Sign in with your Google account to monitor your market in real time.',
-                  style: GoogleFonts.manrope(
-                    fontSize: 14.5,
-                    color: const Color(0xFF8A93A8),
-                    height: 1.5,
-                  ),
-                ),
-                const SizedBox(height: 40),
-
-                // ✅ زر Google الوحيد — بدون كلمة مرور
-                MouseRegion(
-                  cursor: SystemMouseCursors.click,
-                  child: GestureDetector(
-                    onTap: _loading ? null : _signInWithGoogle,
-                    child: AnimatedContainer(
-                      duration: const Duration(milliseconds: 180),
-                      height: 54,
-                      decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(13),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(0.25),
-                            blurRadius: 18,
-                            offset: const Offset(0, 6),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          _loading
-                              ? const SizedBox(
-                                  width: 22,
-                                  height: 22,
-                                  child: CircularProgressIndicator(
-                                      strokeWidth: 2.4,
-                                      color: Color(0xFF0B1020)),
-                                )
-                              : const _GoogleLogo(),
-                          const SizedBox(width: 12),
-                          Text(
-                            'Continue with Google',
+                  'Sign in with your Google account to monitor your market in real time.''Continue with Google',
                             style: GoogleFonts.manrope(
                               fontSize: 16,
                               fontWeight: FontWeight.w700,
@@ -177,103 +106,7 @@ class _AuthScreenState extends ConsumerState<AuthScreen> {
 
                 const SizedBox(height: 24),
                 Text(
-                  'No password needed. Your Google account keeps you safe.',
-                  textAlign: TextAlign.center,
-                  style: GoogleFonts.manrope(
-                    fontSize: 12.5,
-                    color: const Color(0xFF5B657A),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════
-// شعار Google
-// ═══════════════════════════════════════════════════════
-class _GoogleLogo extends StatelessWidget {
-  const _GoogleLogo();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      width: 26,
-      height: 26,
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(7),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
-      child: const Center(
-        child: Text(
-          'G',
-          style: TextStyle(
-            color: Color(0xFF4285F4),
-            fontWeight: FontWeight.w800,
-            fontSize: 17,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════
-// لوحة الهوية (العمود الأيسر)
-// ═══════════════════════════════════════════════════════
-class _BrandPanel extends StatelessWidget {
-  const _BrandPanel();
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF0B1020),
-        gradient: RadialGradient(
-          center: Alignment(-0.6, -0.7),
-          radius: 1.3,
-          colors: [Color(0xFF11203A), Color(0xFF0B1020)],
-        ),
-      ),
-      child: Stack(
-        children: [
-          Positioned(
-            top: -80, left: -60,
-            child: _glow(const Color(0xFF10B981), 260),
-          ),
-          Positioned(
-            bottom: -100, right: -80,
-            child: _glow(const Color(0xFF22D3EE), 300),
-          ),
-          const _FloatingShapes(),
-          const Positioned.fill(child: _DotGrid()),
-          Padding(
-            padding: const EdgeInsets.all(56),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                Row(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.all(11),
-                      decoration: BoxDecoration(
-                        gradient: const LinearGradient(
-                          colors: [Color(0xFF10B981), Color(0xFF22D3EE)],
-                        ),
-                        borderRadius: BorderRadius.circular(13),
-                      ),
-                      child: const Icon(Icons.radar_rounded,
-                          color: Color(0xFF06281F), size: 24),
-                    ),
-                    const SizedBox(width: 14),
-                    Text(
-                      'Velora',
+                  'No password needed. Your Google account keeps you safe.''G''Velora',
                       style: GoogleFonts.spaceGrotesk(
                         fontSize: 26,
                         fontWeight: FontWeight.w700,

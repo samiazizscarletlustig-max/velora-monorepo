@@ -1,4 +1,4 @@
-import 'dart:ui';
+﻿import 'dart:ui';
 import 'package:flutter/material.dart';
 
 void main() {
@@ -76,9 +76,9 @@ class _MainPreviewNavigatorState extends State<MainPreviewNavigator> {
             ],
           ),
           const SizedBox(height: 48),
-          _NavItem(icon: Icons.edit_note, label: 'Smart Notes\nملاحظات ذكية', isSelected: _currentIndex == 0, onTap: () => setState(() => _currentIndex = 0)),
-          _NavItem(icon: Icons.analytics, label: 'Analysis Hub\nمركز التحليل', isSelected: _currentIndex == 1, onTap: () => setState(() => _currentIndex = 1)),
-          _NavItem(icon: Icons.account_tree, label: 'Strategy Canvas\nلوحة الاستراتيجية', isSelected: _currentIndex == 2, onTap: () => setState(() => _currentIndex = 2)),
+          _NavItem(icon: Icons.edit_note, label: '', isSelected: _currentIndex == 0, onTap: () => setState(() => _currentIndex = 0)),
+          _NavItem(icon: Icons.analytics, label: '', isSelected: _currentIndex == 1, onTap: () => setState(() => _currentIndex = 1)),
+          _NavItem(icon: Icons.account_tree, label: '', isSelected: _currentIndex == 2, onTap: () => setState(() => _currentIndex = 2)),
           const Spacer(),
           // User profile
           Container(
@@ -147,7 +147,7 @@ class SmartNotesScreen extends StatelessWidget {
           Expanded(
             child: Column(
               children: [
-                _buildHeader(context, 'Q4 Competitor Response / رد المنافسين للربع الرابع'),
+                _buildHeader(context, ''),
                 const Divider(height: 1, color: Color(0xFF222938)),
                 _buildToolbar(context),
                 Expanded(
@@ -157,14 +157,14 @@ class SmartNotesScreen extends StatelessWidget {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         const Text(
-                          'Q4 Pricing Strategy\nاستراتيجية التسعير للربع الرابع',
+                          '',
                           style: TextStyle(fontSize: 36, fontWeight: FontWeight.bold, height: 1.3),
                         ),
                         const SizedBox(height: 32),
                         _buildCallout(context),
                         const SizedBox(height: 24),
                         const Text(
-                          'We observed a 12% price drop from Noon on key electronic SKUs ahead of White Friday. To counter this without sacrificing margins, we should bundle high-margin accessories with flagship devices.\n\nلاحظنا انخفاضاً بنسبة 12٪ في أسعار نون على منتجات الإلكترونيات الرئيسية قبل الجمعة البيضاء. ولمواجهة ذلك دون التضحية بهوامش الربح، يجب علينا تقديم حزم ملحقات ذات هوامش ربح عالية مع الأجهزة الرئيسية.',
+                          '',
                           style: TextStyle(fontSize: 16, height: 1.8, color: Colors.white70),
                         ),
                         const SizedBox(height: 24),
@@ -259,7 +259,7 @@ class SmartNotesScreen extends StatelessWidget {
             child: const Icon(Icons.lightbulb_outline, color: Colors.amber, size: 20),
           ),
           const SizedBox(width: 16),
-          const Expanded(child: Text('AI Insight: Focus on Smart Home category where Amazon SA is showing inventory shortages.\nرؤية الذكاء الاصطناعي: ركز على فئة الأجهزة المنزلية الذكية حيث تعاني أمازون السعودية من نقص في المخزون.', style: TextStyle(color: Colors.amber, height: 1.5))),
+          const Expanded(child: Text('', style: TextStyle(color: Colors.amber, height: 1.5))),
         ],
       ),
     );
@@ -352,7 +352,7 @@ class AnalysisHubScreen extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Text('Analysis Hub / مركز التحليل', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+              const Text('', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
               ElevatedButton.icon(
                 onPressed: () {},
                 icon: const Icon(Icons.refresh, size: 16),
@@ -378,7 +378,7 @@ class AnalysisHubScreen extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('Market Share Trend / اتجاه الحصة السوقية', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                      const Text('', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                       const SizedBox(height: 32),
                       const SizedBox(height: 300, width: double.infinity, child: MockChart()),
                     ],
@@ -407,7 +407,7 @@ class AnalysisHubScreen extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          const Padding(padding: EdgeInsets.all(24), child: Text('Live Price Monitor / مراقب الأسعار الحي', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
+          const Padding(padding: EdgeInsets.all(24), child: Text('', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold))),
           const Divider(height: 1, color: Color(0xFF222938)),
           DataTable(
             headingTextStyle: TextStyle(color: Colors.white.withOpacity(0.5), fontWeight: FontWeight.bold),
@@ -596,7 +596,7 @@ class _StrategyCanvasScreenState extends State<StrategyCanvasScreen> {
                 children: [
                   Icon(Icons.account_tree, color: Theme.of(context).colorScheme.primary),
                   const SizedBox(width: 16),
-                  const Text('Strategy Canvas / لوحة الاستراتيجية', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
+                  const Text('', style: TextStyle(fontSize: 24, fontWeight: FontWeight.bold)),
                 ],
               ),
               ElevatedButton.icon(
@@ -627,10 +627,10 @@ class _StrategyCanvasScreenState extends State<StrategyCanvasScreen> {
                           size: const Size(4000, 4000),
                           painter: _CanvasConnectionsPainter(nodePositions, Theme.of(context)),
                         ),
-                        _buildNode(0, 'Q4 Pricing Aggression\nتسعير هجومي', 'Drop prices by 10% on flagship items to counter Noon.', const Color(0xFF3B82F6), Icons.attach_money),
-                        _buildNode(1, 'Exclusive Bundles\nباقات حصرية', 'Partner with local brands for unique bundles.', const Color(0xFF8B5CF6), Icons.inventory_2),
-                        _buildNode(2, 'TikTok Influencer Push\nحملة تيك توك', 'Allocate 40% of ad spend to TikTok creators.', const Color(0xFF10B981), Icons.campaign),
-                        _buildNode(3, 'Same-Day Delivery\nتوصيل في نفس اليوم', 'Launch fast logistics in Dammam and Jeddah.', const Color(0xFFF59E0B), Icons.local_shipping),
+                        _buildNode(0, '', 'Drop prices by 10% on flagship items to counter Noon.', const Color(0xFF3B82F6), Icons.attach_money),
+                        _buildNode(1, '', 'Partner with local brands for unique bundles.', const Color(0xFF8B5CF6), Icons.inventory_2),
+                        _buildNode(2, '', 'Allocate 40% of ad spend to TikTok creators.', const Color(0xFF10B981), Icons.campaign),
+                        _buildNode(3, '', 'Launch fast logistics in Dammam and Jeddah.', const Color(0xFFF59E0B), Icons.local_shipping),
                       ],
                     ),
                   ),

@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../shared/widgets/main_scaffold.dart';
@@ -25,31 +25,8 @@ final goRouterProvider = Provider<GoRouter>((ref) {
       final auth = ref.read(authStateProvider);
       final loggedIn = auth.whenOrNull(data: (s) => s.isAuthenticated) ?? false;
       final path = state.matchedLocation;
-      final isAuthRoute = path == '/auth';
-
-      // إذا لم يكن مسجل دخول، ويحاول الوصول لأي صفحة أخرى → أرسله إلى شاشة الدخول
-      if (!loggedIn && !isAuthRoute) return '/auth';
-
-      // إذا كان مسجل دخول، ويحاول الوصول إلى شاشة الدخول → أرسله إلى لوحة التحكم
-      if (loggedIn && isAuthRoute) return '/dashboard';
-
-      // غير ذلك → ابقَ حيث أنت
-      return null;
-    },
-    routes: [
-      // شاشة المصادقة (خارج Shell — بدون شريط جانبي)
-      GoRoute(
-        path: '/auth',
-        name: 'auth',
-        builder: (context, state) => const AuthScreen(),
-      ),
-
-      // التطبيق الرئيسي (داخل Shell — مع الشريط الجانبي)
-      ShellRoute(
-        builder: (context, state, child) => MainScaffold(child: child),
-        routes: [
-          GoRoute(
-            path: '/dashboard',
+      final isAuthRoute = path == '/auth''/auth''/dashboard''/auth',
+        name: 'auth''/dashboard',
             name: 'dashboard',
             builder: (c, s) => const DashboardScreen(),
           ),
@@ -83,7 +60,7 @@ final goRouterProvider = Provider<GoRouter>((ref) {
     ],
   );
 
-  // عند أي تغيير في حالة المصادقة → إعادة تقييم التوجيه فوراً
+  // 
   ref.listen(authStateProvider, (_, __) => router.refresh());
 
   return router;

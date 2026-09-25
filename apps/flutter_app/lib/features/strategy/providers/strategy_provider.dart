@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../models/strategy_node.dart';
 import '../models/strategy_connection.dart';
@@ -44,29 +44,29 @@ class StrategyCanvasNotifier extends Notifier<CanvasState> {
       nodes: [
         StrategyNode(
           id: 'n1',
-          title: 'Q4 Pricing Aggression\nتسعير هجومي للربع الرابع',
-          description: 'Drop prices by 10% on flagship items to counter Noon.\nخفض الأسعار بنسبة 10٪ لمواجهة نون.',
+          title: '',
+          description: '',
           type: StrategyNodeType.pricing,
           position: Offset(100, 150),
         ),
         StrategyNode(
           id: 'n2',
-          title: 'Exclusive Bundles\nباقات حصرية',
-          description: 'Partner with local brands for unique bundles.\nعقد شراكات مع علامات تجارية محلية.',
+          title: '',
+          description: '',
           type: StrategyNodeType.product,
           position: Offset(450, 100),
         ),
         StrategyNode(
           id: 'n3',
-          title: 'TikTok Influencer Push\nحملة تيك توك',
-          description: 'Allocate 40% of ad spend to TikTok creators.\nتخصيص 40٪ من ميزانية الإعلانات لمبدعي تيك توك.',
+          title: '',
+          description: '',
           type: StrategyNodeType.marketing,
           position: Offset(450, 300),
         ),
         StrategyNode(
           id: 'n4',
-          title: 'Same-Day Delivery Expansion\nتوسيع التوصيل في نفس اليوم',
-          description: 'Launch in Dammam and Jeddah.\nالإطلاق في الدمام وجدة.',
+          title: '',
+          description: '',
           type: StrategyNodeType.distribution,
           position: Offset(800, 200),
         ),

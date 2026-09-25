@@ -1,75 +1,15 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:timeago/timeago.dart' as timeago;
-
-// ✅ استيراد شاشات التحليل
-import 'competitor_analysis_screen.dart';
-import '../../../insights/presentation/screens/trend_analysis_screen.dart';
-
-// ✅✅ جديد: نظام الـ Tiers + نافذة الترقية
-import '../../../billing/data/tier_repository.dart';
+import 'package:timeago/timeago.dart''competitor_analysis_screen.dart';
+import '../../../insights/presentation/screens/trend_analysis_screen.dart''../../../billing/data/tier_repository.dart';
 import '../../../billing/widgets/upgrade_dialog.dart';
 
 import '../../../../core/config/app_colors.dart';
 import '../../../../core/widgets/premium_widgets.dart';
 import '../../data/competitors_repository.dart';
-import '../providers/competitors_providers.dart';
-
-// ═══════════════════════════════════════════════════════════
-// 🎯 COMPETITORS SCREEN — AI PREMIUM EDITION (TIER-AWARE)
-// ✅ الإصلاح الجوهري محفوظ: نسخ القائمة قبل الفرز
-// ✅ جديد: بوابة الـ Tiers (Free=3 / Pro=10 / ProPlus=25 / Ent=∞)
-// ═══════════════════════════════════════════════════════════
-class CompetitorsScreen extends ConsumerStatefulWidget {
-  const CompetitorsScreen({super.key});
-
-  @override
-  ConsumerState<CompetitorsScreen> createState() => _CompetitorsScreenState();
-}
-
-class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
-  final TextEditingController _searchCtrl = TextEditingController();
-  final FocusNode _searchFocusNode = FocusNode();
-  late Timer _refreshTimer;
-
-  CompetitorSortMode _sortMode = CompetitorSortMode.recentlyScanned;
-
-  @override
-  void initState() {
-    super.initState();
-
-    _refreshTimer = Timer.periodic(const Duration(seconds: 60), (timer) {
-      if (mounted) {
-        ref.invalidate(competitorsListProvider);
-        ref.invalidate(competitorsStatsProvider);
-      }
-    });
-  }
-
-  @override
-  void dispose() {
-    _refreshTimer.cancel();
-    _searchCtrl.dispose();
-    _searchFocusNode.dispose();
-    super.dispose();
-  }
-
-  // ═════════════════════════════════════════════════════════
-  // 🔒 بوابة الـ Tiers — تفحص الحد قبل فتح نافذة الإضافة
-  // ═════════════════════════════════════════════════════════
-  Future<void> _handleAddTap(BuildContext context, int currentCount) async {
-    final tier = await TierRepository.getCurrentUserTier();
-    final max = TierRepository.getMaxCompetitors(tier);
-
-    if (!mounted) return;
-
-    if (currentCount >= max) {
-      UpgradeDialog.show(
-        context,
-        reason:
-            "You've reached the $max-competitor limit on your ${tier.toUpperCase()} plan. Upgrade to track more competitors with faster scan intervals.",
+import '../providers/competitors_providers.dart''ve reached the $max-competitor limit on your ${tier.toUpperCase()} plan. Upgrade to track more competitors with faster scan intervals.",
         targetTier: tier == 'free' ? 'pro' : 'pro_plus',
       );
       return;
@@ -83,129 +23,14 @@ class _CompetitorsScreenState extends ConsumerState<CompetitorsScreen> {
     final competitorsAsync = ref.watch(competitorsListProvider);
     final statsAsync = ref.watch(competitorsStatsProvider);
 
-    debugPrint('🏗️ [CompetitorsScreen] Building... Loading: ${competitorsAsync.isLoading}, Error: ${competitorsAsync.hasError}');
-
-    return Scaffold(
-      backgroundColor: AppColors.darkSurface,
-      body: SafeArea(
-        child: AnimatedGradientBackground(
-          child: RefreshIndicator(
-            onRefresh: () async {
-              ref.invalidate(competitorsListProvider);
-              ref.invalidate(competitorsStatsProvider);
-              setState(() {}); // ✅ تحديث شارة الخطة أيضاً
-              await Future.delayed(const Duration(milliseconds: 500));
-            },
-            color: AppColors.darkAccent,
-            backgroundColor: AppColors.darkSurface,
-            child: competitorsAsync.when(
-              loading: () => const Center(
-                child: CircularProgressIndicator(color: AppColors.darkAccent),
-              ),
-              error: (e, stack) {
-                debugPrint('❌ [CompetitorsScreen] Error caught: $e');
+    debugPrint('🏗️ [CompetitorsScreen] Building... Loading: ${competitorsAsync.isLoading}, Error: ${competitorsAsync.hasError}''❌ [CompetitorsScreen] Error caught: $e');
                 return _ErrorState(
                   error: e.toString(),
                   onRetry: () => ref.invalidate(competitorsListProvider),
                 );
               },
               data: (competitors) {
-                debugPrint('✅ [CompetitorsScreen] Data loaded. Count: ${competitors.length}');
-                return _buildContent(context, competitors, statsAsync);
-              },
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildContent(
-    BuildContext context,
-    List<Competitor> competitors,
-    AsyncValue<CompetitorStats> statsAsync,
-  ) {
-    return CustomScrollView(
-      physics: const BouncingScrollPhysics(
-        parent: AlwaysScrollableScrollPhysics(),
-      ),
-      slivers: [
-        SliverToBoxAdapter(
-          child: _ScreenHeader(
-            onAdd: () => _handleAddTap(context, competitors.length),
-            competitorCount: competitors.length,
-          ),
-        ),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(32, 0, 32, 24),
-            child: statsAsync.when(
-              data: (stats) => _AnimatedStatsRow(stats: stats),
-              loading: () => const _StatsLoading(),
-              error: (_, __) => const SizedBox.shrink(),
-            ),
-          ),
-        ),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(32, 0, 32, 24),
-            child: _SearchSortToolbar(
-              searchController: _searchCtrl,
-              focusNode: _searchFocusNode,
-              sortMode: _sortMode,
-              resultsCount: _filterAndSort(competitors).length,
-              totalCount: competitors.length,
-              onSearchChanged: (_) => setState(() {}),
-              onSortChanged: (mode) => setState(() => _sortMode = mode),
-            ),
-          ),
-        ),
-        if (competitors.isEmpty)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 32, vertical: 40),
-              child: _EmptyCompetitorsState(
-                onAdd: () => _handleAddTap(context, competitors.length),
-              ),
-            ),
-          )
-        else if (_filterAndSort(competitors).isEmpty)
-          SliverToBoxAdapter(
-            child: _NoResultsState(
-              query: _searchCtrl.text,
-              onClear: () {
-                _searchCtrl.clear();
-                setState(() {});
-              },
-            ),
-          )
-        else
-          SliverPadding(
-            padding: const EdgeInsets.fromLTRB(32, 0, 32, 80),
-            sliver: _CompetitorsList(
-              competitors: _filterAndSort(competitors),
-              onDelete: (c) => _handleDelete(context, c),
-              onTap: (c) => _navigateToDetails(context, c),
-              onScan: (c) => _handleQuickScan(context, c),
-              onViewTrends: (c) => _navigateToTrends(context, c),
-            ),
-          ),
-      ],
-    );
-  }
-
-  // ═════════════════════════════════════════════════════════
-  // ✅✅✅ الإصلاح الجوهري — محفوظ كما هو ✅✅✅
-  // القائمة القادمة من الـ Provider ثابتة (unmodifiable)،
-  // لذا ننسخها أولاً إلى قائمة قابلة للتعديل قبل الفرز.
-  // ═════════════════════════════════════════════════════════
-  List<Competitor> _filterAndSort(List<Competitor> competitors) {
-    final query = _searchCtrl.text.trim().toLowerCase();
-    var filtered = List<Competitor>.of(competitors); // ✅ نسخة قابلة للتعديل
-    if (query.isNotEmpty) {
-      filtered = filtered.where((c) {
-        return c.name.toLowerCase().contains(query) ||
-            (c.website ?? '').toLowerCase().contains(query) ||
+                debugPrint('✅ [CompetitorsScreen] Data loaded. Count: ${competitors.length}''').toLowerCase().contains(query) ||
             (c.domain ?? '').toLowerCase().contains(query);
       }).toList();
     }
@@ -577,31 +402,7 @@ class _ScreenHeader extends StatelessWidget {
               ]),
             ),
             GradientButton(
-              text: 'Add Competitor',
-              icon: Icons.add_rounded,
-              height: 46,
-              onPressed: onAdd,
-            ),
-          ]),
-        ],
-      ),
-    );
-  }
-}
-
-// ═══════════════════════════════════════════════════════════
-// 🏷️ PLAN USAGE CHIP — شارة الخطة والاستخدام (جديد)
-// ═══════════════════════════════════════════════════════════
-class _PlanUsageChip extends StatelessWidget {
-  final int count;
-  const _PlanUsageChip({required this.count});
-
-  @override
-  Widget build(BuildContext context) {
-    return FutureBuilder<String>(
-      future: TierRepository.getCurrentUserTier(),
-      builder: (context, snapshot) {
-        final tier = snapshot.data ?? 'free';
+              text: 'Add Competitor''free';
         final max = TierRepository.getMaxCompetitors(tier);
         final isLimited = count >= max;
         final color = isLimited ? AppColors.warning : AppColors.darkAccent;

@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -21,42 +21,9 @@ class ValidationException extends CompetitorException {
 }
 
 class NotFoundException extends CompetitorException {
-  NotFoundException(String id) : super('Competitor not found', code: id);
-}
-
-// ═══════════════════════════════════════════════════════
-// 🏪 Competitor Model — Enhanced & SAFE
-// ═══════════════════════════════════════════════════════
-@immutable
-class Competitor {
-  final String id;
-  final String name;
-  final String website; // ✅ تم جعله غير قابل للقيمة null لضمان عمل الـ Scraper
-  final String? logoUrl;
-  final String? shopifyStore;
-  final String userId;
-  final DateTime createdAt;
-  final DateTime? lastScanAt;
-  final int productsCount;
-
-  const Competitor({
-    required this.id,
-    required this.name,
-    required this.website,
-    this.logoUrl,
-    this.shopifyStore,
-    required this.userId,
-    required this.createdAt,
-    this.lastScanAt,
-    this.productsCount = 0,
-  });
-
-  factory Competitor.fromMap(Map<String, dynamic> map) {
-    return Competitor(
-      id: map['id']?.toString() ?? '',
+  NotFoundException(String id) : super('Competitor not found''id']?.toString() ?? '',
       name: (map['name'] as String?)?.trim() ?? 'Unknown',
-      website: (map['website'] as String?)?.trim() ?? 'https://unknown.com', // Fallback آمن
-      logoUrl: map['logo_url'] as String?,
+      website: (map['website'] as String?)?.trim() ?? 'https://unknown.com''logo_url'] as String?,
       shopifyStore: map['shopify_store'] as String?,
       userId: map['user_id']?.toString() ?? '',
       createdAt: _parseDateTime(map['created_at']) ?? DateTime.now(),
@@ -247,50 +214,10 @@ class CompetitorsRepository {
 
       return response == null ? null : Competitor.fromMap(response);
     } catch (e, stack) {
-      _logError('findByWebsite', e, stack);
-      return null;
-    }
-  }
-
-  // ═══════════════════════════════════════════════════
-  // ✏️ WRITE OPERATIONS (مع تحقق صارم من Website)
-  // ═══════════════════════════════════════════════════
-
-  Future<Competitor> addCompetitor({
-    required String name,
-    required String userId,
-    String? website,
-    String? shopifyStore,
-  }) async {
-    _validateUserId(userId);
-
-    final trimmedName = name.trim();
-    if (trimmedName.isEmpty) {
-      throw ValidationException('Competitor name cannot be empty');
+      _logError('findByWebsite''Competitor name cannot be empty');
     }
     if (trimmedName.length > 100) {
-      throw ValidationException('Name must be less than 100 characters');
-    }
-
-    // ✅ تحقق صارم: يجب وجود موقع إلكتروني لكي يعمل الـ Scraper
-    String finalWebsite;
-    if (website?.trim().isNotEmpty == true) {
-      finalWebsite = _normalizeUrl(website!.trim());
-    } else if (trimmedName.contains('.') && !trimmedName.contains(' ')) {
-      // إذا أدخل المستخدم اسم النطاق مباشرة (مثل allbirds.com)
-      finalWebsite = _normalizeUrl(trimmedName);
-    } else {
-      throw ValidationException('A valid website URL or domain is required to scan the competitor.');
-    }
-
-    final normalizedShopify = shopifyStore?.trim().isNotEmpty == true 
-        ? _normalizeUrl(shopifyStore!.trim()) 
-        : null;
-
-    // منع التكرار
-    final existing = await findByWebsite(website: finalWebsite, userId: userId);
-    if (existing != null) {
-      throw CompetitorException('A competitor with this website already exists', code: 'DUPLICATE_WEBSITE');
+      throw ValidationException('Name must be less than 100 characters''.') && !trimmedName.contains(' ''A valid website URL or domain is required to scan the competitor.''A competitor with this website already exists', code: 'DUPLICATE_WEBSITE');
     }
 
     try {
@@ -299,8 +226,7 @@ class CompetitorsRepository {
             .from('competitors')
             .insert({
               'name': trimmedName,
-              'website': finalWebsite, // ✅ مضمون أنه ليس null
-              'shopify_store': normalizedShopify,
+              'website''shopify_store': normalizedShopify,
               'user_id': userId,
             })
             .select()
@@ -519,10 +445,7 @@ class CompetitorsRepository {
     if (url.isEmpty) return url;
     String normalized = url.trim();
     if (!normalized.startsWith('http://') && !normalized.startsWith('https://')) {
-      normalized = 'https://$normalized';
-    }
-    // إزالة الشرطة المائلة الزائدة لمنع التكرار
-    if (normalized.endsWith('/') && normalized.length > 9) {
+      normalized = 'https://$normalized''/') && normalized.length > 9) {
       normalized = normalized.substring(0, normalized.length - 1);
     }
     return normalized;
