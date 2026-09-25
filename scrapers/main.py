@@ -1,7 +1,7 @@
 """
  Velora — Advanced Competitive Market Intelligence Engine
 ═══════════════════════════════════════════════════════════════
-PRODUCTION VERSION v3.4 — "The AI Whisperer Edition"
+PRODUCTION VERSION v3.4.1 — "The AI Whisperer Edition (Fixed Ordering)"
 
 ☁️ Cloud-Powered (Hugging Face Router — Multi-Provider Chain)
 🏆 Tier-Aware Scanning (Free / Pro / Pro Plus / Enterprise)
@@ -92,7 +92,7 @@ class Colors:
 
 def print_banner():
     print(f"\n{Colors.HEADER}{'═'*80}{Colors.ENDC}")
-    print(f"{Colors.OKBLUE} Velora v3.4 — The AI Whisperer Edition{Colors.ENDC}")
+    print(f"{Colors.OKBLUE} Velora v3.4.1 — The AI Whisperer Edition{Colors.ENDC}")
     print(f"{Colors.OKCYAN}   Surgical Precision • Zero Fluff • Maximum Token Efficiency{Colors.ENDC}")
     print(f"{Colors.HEADER}{'═'*80}{Colors.ENDC}\n")
 
@@ -246,6 +246,20 @@ class DatabaseManager:
         except Exception as e:
             self.logger.error(f"Failed to save price history: {e}")
             return 0
+
+    def has_previous_price_history(self, competitor_id: str) -> bool:
+        """Check if there is existing price history to avoid useless trend analysis on first scan"""
+        try:
+            res = (
+                self.supabase.table("price_history")
+                .select("id")
+                .eq("competitor_id", competitor_id)
+                .limit(1)
+                .execute()
+            )
+            return len(res.data or []) > 0
+        except Exception:
+            return False
     
     def get_previous_scan_data(self, competitor_id: str) -> Optional[Dict[str, Any]]:
         try:
@@ -791,9 +805,26 @@ class VeloraScraper:
                 print_error("Failed to save products")
                 return False
             
+            # ✅ Check for previous price history BEFORE saving new data
+            has_history = self.db.has_previous_price_history(competitor_id)
             self.db.save_price_history(cleaned_products, competitor_id)
             previous_scan = self.db.get_previous_scan_data(competitor_id)
             
+            # ✅ 1. Run Trend Analysis FIRST (only if history exists) -> older timestamp
+            if has_history:
+                try:
+                    print(f"\n📈 Analyzing price trends for {competitor_name}...")
+                    trend_analyzer = TrendAnalyzer(competitor_id, products)
+                    trend_data = trend_analyzer.analyze_price_trends()
+                    if "error" not in trend_data and trend_data.get("insights"):
+                        self.db.save_trend_insights(trend_data["insights"])
+                        print_success(f"Saved {len(trend_data['insights'])} trend insights")
+                except Exception as e:
+                    self.logger.error(f"Trend analysis failed: {e}")
+            else:
+                print_info("⏭️ First scan — skipping trend analysis (no price history yet)")
+
+            # ✅ 2. Run AI Analysis SECOND -> newest timestamp -> appears on top!
             intel_engine = MarketIntelligenceEngine(competitor, products, previous_scan)
             insights = intel_engine.generate_all_insights()
             
@@ -803,16 +834,6 @@ class VeloraScraper:
             if insights:
                 self.db.save_insights(insights, competitor_id)
                 print_success(f"Saved {len(insights)} strategic insights to database")
-            
-            try:
-                print(f"\n📈 Analyzing price trends for {competitor_name}...")
-                trend_analyzer = TrendAnalyzer(competitor_id, products)
-                trend_data = trend_analyzer.analyze_price_trends()
-                if "error" not in trend_data and trend_data.get("insights"):
-                    self.db.save_trend_insights(trend_data["insights"])
-                    print_success(f"Saved {len(trend_data['insights'])} trend insights")
-            except Exception as e:
-                self.logger.error(f"Trend analysis failed: {e}")
             
             self.db.update_competitor_scan_time(competitor_id)
             print_success(f"✅ Mission Complete: {competitor_name}")
@@ -861,7 +882,7 @@ class VeloraScraper:
             self.run_dynamic_mode(force_all=False)
 
 def main():
-    parser = argparse.ArgumentParser(description="Velora v3.4 — The AI Whisperer Edition", formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(description="Velora v3.4.1 — The AI Whisperer Edition", formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('url', nargs='?', help='Store URL to scan (optional)')
     parser.add_argument('--continuous', '-c', action='store_true', help='Run continuously')
     parser.add_argument('--force-all', '-f', action='store_true', help='Force scan all competitors')
