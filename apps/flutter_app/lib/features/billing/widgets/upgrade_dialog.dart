@@ -68,11 +68,6 @@ class _UpgradeDialogContent extends StatelessWidget {
                     color: Colors.white,
                   ),
                 ),
-                const SizedBox(height: 8),
-                Text(
-                  'افتح المزيد من القدرات',
-                  style: TextStyle(fontSize: 14, color: Colors.white.withOpacity(0.5)),
-                ),
                 const SizedBox(height: 20),
                 Container(
                   padding: const EdgeInsets.all(14),
@@ -95,38 +90,24 @@ class _UpgradeDialogContent extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 28),
-                Row(
-                  children: [
-                    Expanded(
-                      child: _PlanButton(
-                        title: 'Pro',
-                        price: '\$29/mo',
-                        highlight: targetTier == 'pro' || targetTier == null,
-                        onTap: () => _openCheckout(
-                          context,
-                          'https://yourstore.lemonsqueezy.com/checkout/buy/pro-id',
-                        ),
-                      ),
+                // ✅ زر Pro فقط (بدون Pro Plus)
+                SizedBox(
+                  width: double.infinity,
+                  child: _PlanButton(
+                    title: 'Pro',
+                    price: '\$29/mo',
+                    highlight: targetTier == 'pro' || targetTier == null,
+                    onTap: () => _openCheckout(
+                      context,
+                      'https://yourstore.lemonsqueezy.com/checkout/buy/pro-id',
                     ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: _PlanButton(
-                        title: 'Pro Plus',
-                        price: '\$79/mo',
-                        highlight: targetTier == 'pro_plus',
-                        onTap: () => _openCheckout(
-                          context,
-                          'https://yourstore.lemonsqueezy.com/checkout/buy/proplus-id',
-                        ),
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
                 const SizedBox(height: 12),
                 TextButton(
                   onPressed: () => Navigator.of(context).pop(false),
                   child: const Text(
-                    'Maybe later / لاحقاً',
+                    'Maybe later',  // ✅ بالإنجليزي فقط
                     style: TextStyle(color: Colors.white54, fontSize: 14),
                   ),
                 ),
