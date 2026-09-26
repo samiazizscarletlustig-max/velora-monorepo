@@ -1,7 +1,7 @@
 """
  Velora — Advanced Competitive Market Intelligence Engine
 ═══════════════════════════════════════════════════════════════
-PRODUCTION VERSION v3.4.3 — "The AI Whisperer Edition (Final Fix)"
+PRODUCTION VERSION v3.5.0 — "The AI Whisperer Edition (Lifecycle & Delta Fix)"
 
 ☁️ Cloud-Powered (Hugging Face Router — Multi-Provider Chain)
 🏆 Tier-Aware Scanning (Free / Pro / Pro Plus / Enterprise)
@@ -9,8 +9,9 @@ PRODUCTION VERSION v3.4.3 — "The AI Whisperer Edition (Final Fix)"
    - Free: 4 Surgical, Data-Driven Insights (Upgrade Pressure)
    - Pro: 8 Executive Insights + Scorecard + Financial Blueprint
 📈 Price History Tracking & Strict Rate Limiting
-✅ AI Insights Always On Top (Fixed Ordering)
-✅ No Useless "Stable Pricing" Cards
+✅ AI Insights Lifecycle Managed (No Accumulation Bug)
+✅ Historical Deltas Computed (Proves Active Monitoring)
+✅ Token Optimization (No Duplicate Headline Stats)
 
 Architecture:
   [GitHub Actions] → [Scraper] → [AI Analysis] → [Supabase] → [Flutter App]
@@ -94,8 +95,8 @@ class Colors:
 
 def print_banner():
     print(f"\n{Colors.HEADER}{'═'*80}{Colors.ENDC}")
-    print(f"{Colors.OKBLUE} Velora v3.4.3 — The AI Whisperer Edition (Final Fix){Colors.ENDC}")
-    print(f"{Colors.OKCYAN}   Surgical Precision • Zero Fluff • AI Always On Top{Colors.ENDC}")
+    print(f"{Colors.OKBLUE} Velora v3.5.0 — The AI Whisperer Edition (Lifecycle & Delta Fix){Colors.ENDC}")
+    print(f"{Colors.OKCYAN}   Surgical Precision • Zero Fluff • Active Monitoring Deltas{Colors.ENDC}")
     print(f"{Colors.HEADER}{'═'*80}{Colors.ENDC}\n")
 
 def print_success(msg): print(f"{Colors.OKGREEN}✅ {msg}{Colors.ENDC}")
@@ -250,7 +251,6 @@ class DatabaseManager:
             return 0
 
     def has_previous_price_history(self, competitor_id: str) -> bool:
-        """Check if there is existing price history to avoid useless trend analysis on first scan"""
         try:
             res = (
                 self.supabase.table("price_history")
@@ -281,9 +281,18 @@ class DatabaseManager:
     
     def save_insights(self, insights: List[Dict[str, Any]], competitor_id: str = None) -> bool:
         try:
+            comp_id = competitor_id or (insights[0].get('competitor_id') if insights else None)
+            
+            # ✅ FIX: Delete old non-trend insights for this competitor to prevent accumulation
+            if comp_id:
+                try:
+                    self.supabase.table("ai_insights").delete().eq("competitor_id", comp_id).neq("type", "trend").execute()
+                except Exception:
+                    pass
+            
             for insight in insights:
                 if not insight.get('competitor_id'):
-                    insight['competitor_id'] = competitor_id or insights[0].get('competitor_id')
+                    insight['competitor_id'] = comp_id
                 if not insight.get('created_at'):
                     insight['created_at'] = datetime.now(timezone.utc).isoformat()
             
@@ -327,7 +336,7 @@ class DatabaseManager:
             return False
 
 # ═══════════════════════════════════════════════════════════
-# 🧠 DYNAMIC MARKET INTELLIGENCE ENGINE (v3.4 - AI WHISPERER)
+# 🧠 DYNAMIC MARKET INTELLIGENCE ENGINE (v3.5 - AI WHISPERER)
 # ═══════════════════════════════════════════════════════════
 class MarketIntelligenceEngine:
     PROVIDERS = [
@@ -383,7 +392,6 @@ class MarketIntelligenceEngine:
         
         top_categories = category_counts.most_common(5)
         
-        # ✅ NEW: Category Concentration Index (HHI)
         total_cat_products = sum(category_counts.values())
         hhi = sum((count / total_cat_products) ** 2 for count in category_counts.values()) if total_cat_products > 0 else 0
         hhi_score = round(hhi * 10000, 1)
@@ -396,7 +404,6 @@ class MarketIntelligenceEngine:
             if gap > avg_price * 0.3:
                 price_gaps.append({"from": round(sorted_prices[i], 2), "to": round(sorted_prices[i+1], 2), "size": round(gap, 2)})
         
-        # ✅ NEW: Price-Gap-to-Average Ratio
         price_gap_ratios = []
         for gap in price_gaps[:5]:
             ratio = gap['size'] / avg_price if avg_price > 0 else 0
@@ -410,7 +417,6 @@ class MarketIntelligenceEngine:
         top_cat_pct = round((top_cat[1] / len(prices)) * 100, 1) if len(prices) > 0 else 0
         largest_gap = price_gap_ratios[0] if price_gap_ratios else {"from": 0, "to": 0, "size": 0, "ratio_to_avg": 0}
 
-        # ✅ NEW: Headline Stats (Forced AI Usage)
         headline_stats = f"""
         HEADLINE STATS (You MUST use at least 3 of these verbatim with exact values):
         - Largest Price Gap: ${largest_gap['from']}-${largest_gap['to']} (Size: ${largest_gap['size']}, Ratio to Avg: {largest_gap['ratio_to_avg']}x)
@@ -456,6 +462,13 @@ class MarketIntelligenceEngine:
         NO HEDGING: Never use "could", "might", or "consider". Use "Launch", "Price at", "Cut", "Target".
         """
 
+        # ✅ FIX: Wire previous_scan into the prompt to compute deltas
+        previous_context = ""
+        if self.previous_scan and self.previous_scan.get("previous_insights"):
+            prev_insights = self.previous_scan["previous_insights"]
+            prev_summary = " | ".join([f"{i.get('title', 'Insight')}" for i in prev_insights[:3]])
+            previous_context = f"\nPREVIOUS SCAN CONTEXT: Last scan noted: {prev_summary}. \nCRITICAL INSTRUCTION: Compare current data with previous scan. Highlight specific deltas (e.g., 'Average price rose $X since last scan', 'New category emerged'). This proves active monitoring, not just snapshotting."
+
         if self.tier == 'free':
             system_prompt = f"""You are a SENIOR E-COMMERCE MARKET ANALYST. Data scientist who talks like a founder's smartest friend. Precise, blunt, zero corporate hedging.
 
@@ -483,7 +496,9 @@ OUTPUT FORMAT (JSON only):
   ]
 }}"""
             
-            user_prompt = f"""{data.get('headline_stats')}
+            # ✅ FIX: Strip headline_stats from JSON dump to save tokens
+            data_for_json = {k: v for k, v in data.items() if k != 'headline_stats'}
+            user_prompt = f"""{data.get('headline_stats')}{previous_context}
 
 Analyze this competitor data and provide 4 deep, scientific insights.
 Competitor: {data.get('competitor_name')}
@@ -491,9 +506,10 @@ Products Analyzed: {data.get('products_with_pricing')}
 Avg Price: ${data.get('pricing_intelligence', {}).get('average_price', 0):.2f}
 
 Full Data:
-{json.dumps(data, indent=2)}
+{json.dumps(data_for_json, indent=2)}
 """
-            max_tokens = 3000
+            # ✅ FIX: Read max_tokens from tier limits dynamically
+            max_tokens = self.limits['ai_tokens']
 
         else:  # Pro, Pro Plus, Enterprise
             system_prompt = f"""You are a CHIEF STRATEGY OFFICER (CSO) and former McKinsey Partner specializing in D2C/E-commerce.
@@ -526,20 +542,24 @@ REQUIRED OUTPUT STRUCTURE (JSON only):
   "risk_assessment": "2-3 sentences on the biggest strategic risks if we fail to respond in 30 days, with a timeline."
 }}"""
             
-            user_prompt = f"""{data.get('headline_stats')}
+            # ✅ FIX: Strip headline_stats from JSON dump to save tokens
+            data_for_json = {k: v for k, v in data.items() if k != 'headline_stats'}
+            user_prompt = f"""{data.get('headline_stats')}{previous_context}
 
 ## COMPETITOR INTELLIGENCE REPORT — {data.get('competitor_name')}
 Tier: {data.get('tier_context').upper()}
 Scan Date: {data.get('scan_date')}
 
-{json.dumps(data, indent=2)}
+Full Data:
+{json.dumps(data_for_json, indent=2)}
 
 ## DELIVERABLE — 8 STRATEGIC INSIGHTS:
 1. Pricing warfare  2. Product gap  3. Competitive threat  4. Counter-move
 5. Market timing  6. Brand positioning  7. Customer psychology  8. Supply chain signal
 
 Return ONLY valid JSON."""
-            max_tokens = 4500
+            # ✅ FIX: Read max_tokens from tier limits dynamically
+            max_tokens = self.limits['ai_tokens']
 
         return system_prompt, user_prompt, max_tokens
 
@@ -590,6 +610,12 @@ Return ONLY valid JSON."""
             timestamp = datetime.now(timezone.utc).isoformat()
             comp_id = self.competitor['id']
             valid_types = {"pricing_warfare", "product_gap", "competitive_threat", "counter_move", "market_timing", "brand_positioning", "customer_psychology", "supply_chain_signal", "category_dominance"}
+            
+            # ✅ FIX: Cheap Python-side post-check for the "every sentence needs a number" rule
+            has_numbers = any(re.search(r'\d', str(insight.get('ai_recommendation', '')) + str(insight.get('summary', ''))) for insight in ai_response.get('insights', []))
+            if not has_numbers and len(ai_response.get('insights', [])) > 0:
+                self.logger.warning("⚠️ AI response failed number check. Triggering fallback.")
+                return self._generate_fallback_insights()
             
             if self.tier == 'free':
                 exec_summary = ai_response.get('executive_summary', '')
@@ -800,14 +826,11 @@ class VeloraScraper:
                 print_error("Failed to save products")
                 return False
             
-            # ✅ Check for previous price history BEFORE saving new data
             has_history = self.db.has_previous_price_history(competitor_id)
             self.db.save_price_history(cleaned_products, competitor_id)
             previous_scan = self.db.get_previous_scan_data(competitor_id)
             
-            # ✅ 1. Trend Analysis FIRST (only if history exists) -> older timestamp -> يظهر تحت الـ AI
             if has_history:
-                # Delete OLD trend insights from previous scan
                 try:
                     self.supabase.table("ai_insights").delete().eq("competitor_id", competitor_id).eq("type", "trend").execute()
                 except Exception:
@@ -817,7 +840,6 @@ class VeloraScraper:
                     trend_analyzer = TrendAnalyzer(competitor_id, products)
                     trend_data = trend_analyzer.analyze_price_trends()
                     if "error" not in trend_data and trend_data.get("insights"):
-                        # ✅ v3.4.3: Remove useless "stable" cards - keep only real price movements
                         moving = [i for i in trend_data["insights"] if "stable" not in str(i.get("title", "")).lower()]
                         if moving:
                             self.db.save_trend_insights(moving)
@@ -829,7 +851,6 @@ class VeloraScraper:
             else:
                 print_info("⏭️ First scan — skipping trend analysis (no price history yet)")
             
-            # ✅ 2. AI Analysis SECOND -> newest timestamp -> appears on top!
             intel_engine = MarketIntelligenceEngine(competitor, products, previous_scan)
             insights = intel_engine.generate_all_insights()
             
@@ -887,7 +908,7 @@ class VeloraScraper:
             self.run_dynamic_mode(force_all=False)
 
 def main():
-    parser = argparse.ArgumentParser(description="Velora v3.4.3 — The AI Whisperer Edition (Final Fix)", formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(description="Velora v3.5.0 — The AI Whisperer Edition (Lifecycle & Delta Fix)", formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('url', nargs='?', help='Store URL to scan (optional)')
     parser.add_argument('--continuous', '-c', action='store_true', help='Run continuously')
     parser.add_argument('--force-all', '-f', action='store_true', help='Force scan all competitors')
