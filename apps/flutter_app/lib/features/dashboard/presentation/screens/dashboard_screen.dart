@@ -15,7 +15,6 @@ import '../../../../core/widgets/premium_widgets.dart';
 import '../providers/dashboard_providers.dart';
 import '../../data/dashboard_repository.dart';
 
-// (كل الفئات من DashboardScreen إلى _SystemHealthCard و _RingPainter تبقى كما هي تماماً - لا تغيير)
 // ═══════════════════════════════════════════════════════════
 // 🎯 DASHBOARD SCREEN
 // ══════════════════════════════════════════════════════════
@@ -1060,7 +1059,9 @@ class _PremiumInsightCardState extends State<_PremiumInsightCard> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final severityColor = _getSeverityColor(widget.insight.severity);
-    final typeIcon = _getTypeIcon(widget.insight.type);
+    
+    // ✅ FIX: Use dynamic access for 'type' to prevent compilation errors if it's not strictly defined in the model
+    final typeIcon = _getTypeIcon((widget.insight as dynamic).type ?? widget.insight.severity);
     
     final aiRec = (widget.insight as dynamic).aiRecommendation as String? ?? '';
 
