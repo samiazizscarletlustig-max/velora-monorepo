@@ -12,8 +12,6 @@ serve(async (req) => {
   }
 
   try {
-    const { user_id } = await req.json()
-    
     const githubPat = Deno.env.get('GITHUB_PAT')
     const githubRepo = Deno.env.get('GITHUB_REPO')
     const githubWorkflow = Deno.env.get('GITHUB_WORKFLOW')
@@ -23,6 +21,7 @@ serve(async (req) => {
     }
 
     // Trigger GitHub Actions Workflow Dispatch
+    // تم إزالة 'inputs' لأن الـ workflow لا يتوقع استقبال متغيرات
     const response = await fetch(
       `https://api.github.com/repos/${githubRepo}/actions/workflows/${githubWorkflow}/dispatches`,
       {
@@ -33,10 +32,7 @@ serve(async (req) => {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({
-          ref: 'main',
-          inputs: {
-            user_id: user_id || 'all'
-          }
+          ref: 'main'
         })
       }
     )
