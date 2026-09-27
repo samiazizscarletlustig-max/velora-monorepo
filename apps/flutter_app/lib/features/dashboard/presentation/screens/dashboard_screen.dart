@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
@@ -14,9 +15,9 @@ import '../../../../core/widgets/premium_widgets.dart';
 import '../providers/dashboard_providers.dart';
 import '../../data/dashboard_repository.dart';
 
+// (كل الفئات من DashboardScreen إلى _SystemHealthCard و _RingPainter تبقى كما هي تماماً - لا تغيير)
 // ═══════════════════════════════════════════════════════════
-// 🎯 DASHBOARD SCREEN — AI PREMIUM EDITION
-// The command center of Velora — where strategy meets data.
+// 🎯 DASHBOARD SCREEN
 // ══════════════════════════════════════════════════════════
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
@@ -95,9 +96,6 @@ class DashboardScreen extends ConsumerWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🌅 HERO HEADER — Premium Welcome
-// ═══════════════════════════════════════════════════════════
 class _HeroHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -205,9 +203,6 @@ class _HeroHeader extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🎯 LOGO BADGE
-// ═══════════════════════════════════════════════════════════
 class _LogoBadge extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -249,9 +244,6 @@ class _LogoBadge extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 👤 USER PROFILE
-// ═══════════════════════════════════════════════════════════
 class _UserProfile extends StatelessWidget {
   final String userName;
   const _UserProfile({required this.userName});
@@ -311,9 +303,6 @@ class _UserProfile extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🔴 LIVE INDICATOR
-// ═══════════════════════════════════════════════════════════
 class _LiveIndicator extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
@@ -348,9 +337,6 @@ class _LiveIndicator extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 📊 STATS GRID
-// ═══════════════════════════════════════════════════════════
 class _StatsGrid extends StatelessWidget {
   final DashboardStats stats;
   const _StatsGrid({required this.stats});
@@ -562,9 +548,6 @@ class _PremiumStatCard extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 📈 SPARKLINE
-// ═══════════════════════════════════════════════════════════
 class _Sparkline extends StatelessWidget {
   final List<int> data;
   final Color color;
@@ -636,9 +619,6 @@ class _SparklinePainter extends CustomPainter {
   bool shouldRepaint(covariant _SparklinePainter old) => old.data != data || old.color != color;
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🏥 SYSTEM HEALTH CARD
-// ═══════════════════════════════════════════════════════════
 class _SystemHealthCard extends StatelessWidget {
   final DashboardStats stats;
   const _SystemHealthCard({required this.stats});
@@ -751,10 +731,44 @@ class _RingPainter extends CustomPainter {
 }
 
 // ═══════════════════════════════════════════════════════════
-// ⚡ QUICK ACTIONS
+// ⚡ QUICK ACTIONS - MODIFIED: Now a ConsumerWidget with auto-refresh
 // ═══════════════════════════════════════════════════════════
-class _QuickActions extends StatelessWidget {
+class _QuickActions extends ConsumerStatefulWidget {
   const _QuickActions();
+
+  @override
+  ConsumerState<_QuickActions> createState() => _QuickActionsState();
+}
+
+class _QuickActionsState extends ConsumerState<_QuickActions> {
+  Timer? _autoRefreshTimer;
+  int _refreshCount = 0;
+  static const int _maxRefreshes = 10; // 10 * 30s = 5 minutes
+
+  @override
+  void dispose() {
+    _autoRefreshTimer?.cancel();
+    super.dispose();
+  }
+
+  void _startAutoRefresh() {
+    _autoRefreshTimer?.cancel();
+    _refreshCount = 0;
+    
+    _autoRefreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
+      if (_refreshCount >= _maxRefreshes) {
+        timer.cancel();
+        return;
+      }
+      
+      // Refetch insights and stats automatically
+      ref.invalidate(recentInsightsProvider);
+      ref.invalidate(dashboardStatsProvider);
+      _refreshCount++;
+      
+      print('[AUTO-REFRESH] Refreshing insights (count: $_refreshCount/$_maxRefreshes)');
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -789,17 +803,14 @@ class _QuickActions extends StatelessWidget {
           final isWide = constraints.maxWidth > 700;
           final children = [
             _ActionButton(icon: Icons.add_rounded, label: 'Add Competitor', shortcut: 'N', gradient: AppColors.primaryGradient, onTap: () => context.go('/competitors/add')),
-            
-            // ✅ زر Run Scan المحسّن والآمن تماماً من الأخطاء (Root Navigator Fix)
             _ActionButton(
               icon: Icons.radar_rounded,
               label: 'Run Scan',
               shortcut: '⌘R',
               gradient: AppColors.successGradient,
               onTap: () async {
-                if (!context.mounted) return;
+                if (!mounted) return;
 
-                // إظهار نافذة التحميل
                 showDialog(
                   context: context,
                   barrierDismissible: false,
@@ -819,29 +830,38 @@ class _QuickActions extends StatelessWidget {
                   final user = supabase.auth.currentUser;
                   
                   if (user == null) {
-                    if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
+                    if (mounted) Navigator.of(context, rootNavigator: true).pop();
                     throw Exception('Please log in first.');
                   }
-
-                  print('🚀 Triggering scan for user: ${user.id}');
 
                   final response = await supabase.functions.invoke(
                     'trigger-scan',
                     body: {'user_id': user.id},
                   );
 
-                  print('📥 Response: ${response.data}');
-
-                  if (context.mounted) {
-                    // إغلاق النافذة بأمان باستخدام rootNavigator
+                  if (mounted) {
                     Navigator.of(context, rootNavigator: true).pop();
                     
                     if (response.data != null && response.data['success'] == true) {
+                      // Start auto-refresh timer to pull new insights every 30s for 5 minutes
+                      _startAutoRefresh();
+                      
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
-                          content: Text(response.data['message'] ?? 'Scan triggered successfully!'),
+                          content: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(response.data['message'] ?? 'Scan triggered successfully!'),
+                              const SizedBox(height: 4),
+                              const Text(
+                                'New insights will appear automatically in 3-5 minutes.',
+                                style: TextStyle(fontSize: 12, fontStyle: FontStyle.italic),
+                              ),
+                            ],
+                          ),
                           backgroundColor: AppColors.success,
-                          duration: const Duration(seconds: 4),
+                          duration: const Duration(seconds: 5),
                         ),
                       );
                     } else {
@@ -849,12 +869,8 @@ class _QuickActions extends StatelessWidget {
                     }
                   }
                 } catch (e) {
-                  print('❌ Error: $e');
-                  
-                  if (context.mounted) {
-                    // إغلاق النافذة في حالة الخطأ
+                  if (mounted) {
                     Navigator.of(context, rootNavigator: true).pop();
-                    
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text('Failed: ${e.toString()}'),
@@ -866,7 +882,6 @@ class _QuickActions extends StatelessWidget {
                 }
               },
             ),
-            
             _ActionButton(icon: Icons.analytics_rounded, label: 'Analytics', shortcut: '⌘A', gradient: AppColors.warningGradient, onTap: () => context.go('/analytics')),
             _ActionButton(icon: Icons.sticky_note_2_rounded, label: 'Strategic Notes', shortcut: '⌘⇧N', gradient: const LinearGradient(colors: [Color(0xFFEC4899), Color(0xFF8B5CF6)]), onTap: () => context.go('/notes')),
           ];
@@ -956,9 +971,6 @@ class _ActionButtonState extends State<_ActionButton> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 📌 SECTION HEADER
-// ═══════════════════════════════════════════════════════════
 class _SectionHeader extends StatelessWidget {
   final String title;
   final String subtitle;
@@ -1009,9 +1021,6 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 💡 INSIGHTS LIST
-// ═══════════════════════════════════════════════════════════
 class _InsightsList extends StatelessWidget {
   final List<InsightPreview> insights;
   const _InsightsList({required this.insights});
@@ -1036,9 +1045,6 @@ class _InsightsList extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 💎 PREMIUM INSIGHT CARD — AI Enhanced & Expandable (FIXED)
-// ═══════════════════════════════════════════════════════════
 class _PremiumInsightCard extends StatefulWidget {
   final InsightPreview insight;
   const _PremiumInsightCard({required this.insight});
@@ -1054,7 +1060,7 @@ class _PremiumInsightCardState extends State<_PremiumInsightCard> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final severityColor = _getSeverityColor(widget.insight.severity);
-    final typeIcon = _getTypeIcon(widget.insight.severity);
+    final typeIcon = _getTypeIcon(widget.insight.type);
     
     final aiRec = (widget.insight as dynamic).aiRecommendation as String? ?? '';
 
@@ -1252,16 +1258,20 @@ class _PremiumInsightCardState extends State<_PremiumInsightCard> {
       case 'high': return AppColors.warning;
       case 'medium': return AppColors.info;
       case 'low': return AppColors.success;
-      default: return AppColors.darkAccent;
+      default: return AppColors.darkAccent; 
     }
   }
 
-  IconData _getTypeIcon(String severity) {
-    switch (severity.toLowerCase()) {
-      case 'critical': return Icons.priority_high_rounded;
-      case 'high': return Icons.trending_up_rounded;
-      case 'medium': return Icons.insights_rounded;
-      case 'low': return Icons.lightbulb_rounded;
+  IconData _getTypeIcon(String type) {
+    switch (type.toLowerCase()) {
+      case 'risk_assessment': return Icons.warning_amber_rounded;
+      case 'competitive_threat': return Icons.trending_up_rounded;
+      case 'strategic_timeline': return Icons.timeline_rounded;
+      case 'quick_wins': return Icons.bolt_rounded;
+      case 'financial_blueprint': return Icons.account_balance_rounded;
+      case 'product_gap': return Icons.grid_3x3_rounded;
+      case 'category_dominance': return Icons.pie_chart_rounded;
+      case 'pricing_warfare': return Icons.currency_exchange_rounded;
       default: return Icons.auto_awesome_rounded;
     }
   }
@@ -1277,9 +1287,6 @@ class _PremiumInsightCardState extends State<_PremiumInsightCard> {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 📝 FORMATTED TEXT WIDGET (Handles bullet points)
-// ═══════════════════════════════════════════════════════════
 class _FormattedText extends StatelessWidget {
   final String text;
   final TextStyle style;
@@ -1361,9 +1368,6 @@ class _SeverityBadge extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// 🕳️ EMPTY STATE
-// ═══════════════════════════════════════════════════════════
 class _EmptyInsightsState extends StatelessWidget {
   const _EmptyInsightsState();
 
@@ -1402,9 +1406,6 @@ class _EmptyInsightsState extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// ⏳ LOADING STATES
-// ═══════════════════════════════════════════════════════════
 class _StatsGridLoading extends StatelessWidget {
   const _StatsGridLoading();
 
@@ -1447,9 +1448,6 @@ class _InsightsListLoading extends StatelessWidget {
   }
 }
 
-// ═══════════════════════════════════════════════════════════
-// ⚠️ ERROR STATE
-// ═══════════════════════════════════════════════════════════
 class _ErrorState extends StatelessWidget {
   final String error;
   final VoidCallback onRetry;
