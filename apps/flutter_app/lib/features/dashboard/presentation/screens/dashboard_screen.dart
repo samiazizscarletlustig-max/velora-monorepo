@@ -790,7 +790,7 @@ class _QuickActions extends StatelessWidget {
           final children = [
             _ActionButton(icon: Icons.add_rounded, label: 'Add Competitor', shortcut: 'N', gradient: AppColors.primaryGradient, onTap: () => context.go('/competitors/add')),
             
-            // ✅ زر Run Scan المحسّن والآمن تماماً من الأخطاء
+            // ✅ زر Run Scan المحسّن والآمن تماماً من الأخطاء (Root Navigator Fix)
             _ActionButton(
               icon: Icons.radar_rounded,
               label: 'Run Scan',
@@ -799,47 +799,43 @@ class _QuickActions extends StatelessWidget {
               onTap: () async {
                 if (!context.mounted) return;
 
-                BuildContext? dialogContext;
-                
-                // 1. إظهار نافذة التحميل وحفظ الـ Context الخاص بها
+                // إظهار نافذة التحميل
                 showDialog(
                   context: context,
                   barrierDismissible: false,
-                  builder: (ctx) {
-                    dialogContext = ctx;
-                    return const AlertDialog(
-                      content: Row(
-                        children: [
-                          CircularProgressIndicator(),
-                          SizedBox(width: 20),
-                          Text('Triggering scan...'),
-                        ],
-                      ),
-                    );
-                  },
+                  builder: (dialogContext) => const AlertDialog(
+                    content: Row(
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(width: 20),
+                        Text('Triggering scan...'),
+                      ],
+                    ),
+                  ),
                 );
 
                 try {
                   final supabase = Supabase.instance.client;
-                  final userId = supabase.auth.currentUser?.id;
+                  final user = supabase.auth.currentUser;
                   
-                  if (userId == null) {
+                  if (user == null) {
+                    if (context.mounted) Navigator.of(context, rootNavigator: true).pop();
                     throw Exception('Please log in first.');
                   }
 
-                  // 2. استدعاء الدالة
+                  print('🚀 Triggering scan for user: ${user.id}');
+
                   final response = await supabase.functions.invoke(
                     'trigger-scan',
-                    body: {'user_id': userId},
+                    body: {'user_id': user.id},
                   );
 
-                  // 3. إغلاق النافذة بأمان
-                  if (dialogContext != null && Navigator.canPop(dialogContext!)) {
-                    Navigator.of(dialogContext!).pop();
-                  }
+                  print('📥 Response: ${response.data}');
 
-                  // 4. عرض النتيجة
                   if (context.mounted) {
+                    // إغلاق النافذة بأمان باستخدام rootNavigator
+                    Navigator.of(context, rootNavigator: true).pop();
+                    
                     if (response.data != null && response.data['success'] == true) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         SnackBar(
@@ -853,17 +849,17 @@ class _QuickActions extends StatelessWidget {
                     }
                   }
                 } catch (e) {
-                  // 5. معالجة الأخطاء وإغلاق النافذة في حال الفشل
-                  if (dialogContext != null && Navigator.canPop(dialogContext!)) {
-                    Navigator.of(dialogContext!).pop();
-                  }
+                  print('❌ Error: $e');
                   
                   if (context.mounted) {
+                    // إغلاق النافذة في حالة الخطأ
+                    Navigator.of(context, rootNavigator: true).pop();
+                    
                     ScaffoldMessenger.of(context).showSnackBar(
                       SnackBar(
                         content: Text('Failed: ${e.toString()}'),
                         backgroundColor: AppColors.danger,
-                        duration: const Duration(seconds: 5),
+                        duration: const Duration(seconds: 6),
                       ),
                     );
                   }
