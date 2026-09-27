@@ -1,5 +1,4 @@
 import 'dart:math' as math;
-import 'dart:js' as js;
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -790,9 +789,67 @@ class _QuickActions extends StatelessWidget {
           final isWide = constraints.maxWidth > 700;
           final children = [
             _ActionButton(icon: Icons.add_rounded, label: 'Add Competitor', shortcut: 'N', gradient: AppColors.primaryGradient, onTap: () => context.go('/competitors/add')),
-            _ActionButton(icon: Icons.radar_rounded, label: 'Run Scan', shortcut: '⌘R', gradient: AppColors.successGradient, onTap: () {
-              js.context.callMethod('open', ['https://github.com/samiazizscarletlustig-max/velora-monorepo/actions']);
-            }),
+            
+            // ✅ تم تحديث زر Run Scan لاستدعاء Supabase Edge Function
+            _ActionButton(
+              icon: Icons.radar_rounded,
+              label: 'Run Scan',
+              shortcut: '⌘R',
+              gradient: AppColors.successGradient,
+              onTap: () async {
+                // 1. إظهار نافذة التحميل
+                showDialog(
+                  context: context,
+                  barrierDismissible: false,
+                  builder: (context) => const AlertDialog(
+                    content: Row(
+                      children: [
+                        CircularProgressIndicator(),
+                        SizedBox(width: 20),
+                        Text('Triggering scan...'),
+                      ],
+                    ),
+                  ),
+                );
+
+                try {
+                  // 2. استدعاء دالة Supabase Edge Function
+                  final supabase = Supabase.instance.client;
+                  final userId = supabase.auth.currentUser?.id;
+                  
+                  final response = await supabase.functions.invoke('trigger-scan', body: {
+                    'user_id': userId,
+                  });
+
+                  // 3. إغلاق نافذة التحميل بأمان
+                  if (context.mounted) Navigator.of(context).pop();
+
+                  // 4. عرض نتيجة النجاح أو الفشل
+                  if (response.data['success'] == true) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(response.data['message']),
+                        backgroundColor: AppColors.success,
+                        duration: const Duration(seconds: 4),
+                      ),
+                    );
+                  } else {
+                    throw Exception(response.data['error'] ?? 'Unknown error');
+                  }
+                } catch (e) {
+                  if (context.mounted) Navigator.of(context).pop();
+                  
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Failed to trigger scan: $e'),
+                      backgroundColor: AppColors.danger,
+                      duration: const Duration(seconds: 4),
+                    ),
+                  );
+                }
+              },
+            ),
+            
             _ActionButton(icon: Icons.analytics_rounded, label: 'Analytics', shortcut: '⌘A', gradient: AppColors.warningGradient, onTap: () => context.go('/analytics')),
             _ActionButton(icon: Icons.sticky_note_2_rounded, label: 'Strategic Notes', shortcut: '⌘⇧N', gradient: const LinearGradient(colors: [Color(0xFFEC4899), Color(0xFF8B5CF6)]), onTap: () => context.go('/notes')),
           ];
