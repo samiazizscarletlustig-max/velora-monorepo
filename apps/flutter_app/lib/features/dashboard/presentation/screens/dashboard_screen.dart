@@ -790,62 +790,83 @@ class _QuickActions extends StatelessWidget {
           final children = [
             _ActionButton(icon: Icons.add_rounded, label: 'Add Competitor', shortcut: 'N', gradient: AppColors.primaryGradient, onTap: () => context.go('/competitors/add')),
             
-            // ✅ تم تحديث زر Run Scan لاستدعاء Supabase Edge Function
+            // ✅ زر Run Scan المحسّن والآمن تماماً من الأخطاء
             _ActionButton(
               icon: Icons.radar_rounded,
               label: 'Run Scan',
               shortcut: '⌘R',
               gradient: AppColors.successGradient,
               onTap: () async {
-                // 1. إظهار نافذة التحميل
+                if (!context.mounted) return;
+
+                BuildContext? dialogContext;
+                
+                // 1. إظهار نافذة التحميل وحفظ الـ Context الخاص بها
                 showDialog(
                   context: context,
                   barrierDismissible: false,
-                  builder: (context) => const AlertDialog(
-                    content: Row(
-                      children: [
-                        CircularProgressIndicator(),
-                        SizedBox(width: 20),
-                        Text('Triggering scan...'),
-                      ],
-                    ),
-                  ),
+                  builder: (ctx) {
+                    dialogContext = ctx;
+                    return const AlertDialog(
+                      content: Row(
+                        children: [
+                          CircularProgressIndicator(),
+                          SizedBox(width: 20),
+                          Text('Triggering scan...'),
+                        ],
+                      ),
+                    );
+                  },
                 );
 
                 try {
-                  // 2. استدعاء دالة Supabase Edge Function
                   final supabase = Supabase.instance.client;
                   final userId = supabase.auth.currentUser?.id;
                   
-                  final response = await supabase.functions.invoke('trigger-scan', body: {
-                    'user_id': userId,
-                  });
+                  if (userId == null) {
+                    throw Exception('Please log in first.');
+                  }
 
-                  // 3. إغلاق نافذة التحميل بأمان
-                  if (context.mounted) Navigator.of(context).pop();
+                  // 2. استدعاء الدالة
+                  final response = await supabase.functions.invoke(
+                    'trigger-scan',
+                    body: {'user_id': userId},
+                  );
 
-                  // 4. عرض نتيجة النجاح أو الفشل
-                  if (response.data['success'] == true) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(response.data['message']),
-                        backgroundColor: AppColors.success,
-                        duration: const Duration(seconds: 4),
-                      ),
-                    );
-                  } else {
-                    throw Exception(response.data['error'] ?? 'Unknown error');
+                  // 3. إغلاق النافذة بأمان
+                  if (dialogContext != null && Navigator.canPop(dialogContext!)) {
+                    Navigator.of(dialogContext!).pop();
+                  }
+
+                  // 4. عرض النتيجة
+                  if (context.mounted) {
+                    if (response.data != null && response.data['success'] == true) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(
+                          content: Text(response.data['message'] ?? 'Scan triggered successfully!'),
+                          backgroundColor: AppColors.success,
+                          duration: const Duration(seconds: 4),
+                        ),
+                      );
+                    } else {
+                      throw Exception(response.data?['error'] ?? 'Unknown error from server');
+                    }
                   }
                 } catch (e) {
-                  if (context.mounted) Navigator.of(context).pop();
+                  // 5. معالجة الأخطاء وإغلاق النافذة في حال الفشل
+                  if (dialogContext != null && Navigator.canPop(dialogContext!)) {
+                    Navigator.of(dialogContext!).pop();
+                  }
                   
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Failed to trigger scan: $e'),
-                      backgroundColor: AppColors.danger,
-                      duration: const Duration(seconds: 4),
-                    ),
-                  );
+                  if (context.mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Failed: ${e.toString()}'),
+                        backgroundColor: AppColors.danger,
+                        duration: const Duration(seconds: 5),
+                      ),
+                    );
+                  }
                 }
               },
             ),
@@ -1039,7 +1060,6 @@ class _PremiumInsightCardState extends State<_PremiumInsightCard> {
     final severityColor = _getSeverityColor(widget.insight.severity);
     final typeIcon = _getTypeIcon(widget.insight.severity);
     
-    // FIX: Safe dynamic access for aiRecommendation to avoid null errors
     final aiRec = (widget.insight as dynamic).aiRecommendation as String? ?? '';
 
     return GlassCard(
@@ -1080,7 +1100,7 @@ class _PremiumInsightCardState extends State<_PremiumInsightCard> {
                   child: Container(
                     padding: const EdgeInsets.all(3),
                     decoration: BoxDecoration(
-                      color: const Color(0xFF8B5CF6), // FIX: Solid color instead of gradient to avoid TextStyle/BoxDecoration conflicts
+                      color: const Color(0xFF8B5CF6),
                       borderRadius: BorderRadius.circular(6),
                       boxShadow: [
                         BoxShadow(
@@ -1113,7 +1133,6 @@ class _PremiumInsightCardState extends State<_PremiumInsightCard> {
                 const SizedBox(height: 8),
                 _FormattedText(
                   text: widget.insight.summary,
-                  // FIX: Guaranteed non-null TextStyle
                   style: (Theme.of(context).textTheme.bodyMedium ?? const TextStyle()).copyWith(
                         color: isDark ? AppColors.darkSecondary : AppColors.lightSecondary,
                         height: 1.5,
@@ -1162,7 +1181,6 @@ class _PremiumInsightCardState extends State<_PremiumInsightCard> {
               Divider(color: isDark ? AppColors.darkBorder : AppColors.lightBorder),
               const SizedBox(height: 16),
               
-              // FIX: Safe null check for aiRec
               if (aiRec.isNotEmpty) ...[
                 Row(children: [
                   Container(
@@ -1205,7 +1223,6 @@ class _PremiumInsightCardState extends State<_PremiumInsightCard> {
                     border: Border.all(color: const Color(0xFF8B5CF6).withOpacity(0.2), width: 1),
                   ),
                   child: _FormattedText(
-                    // FIX: Passing safe non-null String
                     text: aiRec,
                     style: (Theme.of(context).textTheme.bodyMedium ?? const TextStyle()).copyWith(
                           height: 1.7,
