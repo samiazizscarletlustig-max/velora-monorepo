@@ -1,7 +1,20 @@
+# ============================================================
+# Velora Scraper - Complete Dependencies
+# ============================================================
+
+# --- Core & Database ---
 supabase
 python-dotenv
+
+# --- HTTP & Web Scraping ---
 requests
+httpx
+curl_cffi
 beautifulsoup4
-google-generativeai
-resend
 lxml
+
+# --- AI & Intelligence ---
+google-generativeai
+
+# --- Email & Notifications ---
+resend
