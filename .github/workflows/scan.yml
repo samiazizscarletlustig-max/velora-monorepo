@@ -2,7 +2,7 @@ name: 🚀 Velora Auto-Scan
 
 on:
   schedule:
-    # كل 3 ساعات — والمنطق داخل الكود يقرر من يُمسح حسب خطة كل مستخدم
+    # تشغيل تلقائي كل 3 ساعات — والمنطق داخل الكود يقرر من يُمسح حسب خطة كل مستخدم
     # (Free: كل 24h، Pro: كل 6h، Pro Plus: كل 3h، Enterprise: كل 1h)
     - cron: '0 */3 * * *'
   workflow_dispatch:  # تشغيل يدوي من GitHub
@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name: 📥 Checkout code
+      - name:  Checkout code
         uses: actions/checkout@v4
       
       - name: 🐍 Setup Python
@@ -36,9 +36,9 @@ jobs:
           echo "SCAN_INTERVAL=86400" >> .env
           echo "MAX_RETRIES=3" >> .env
       
-      - name: 🚀 Run scan (Tier-Aware)
+      - name:  Run scan (Tier-Aware with Force-All)
         working-directory: ./scrapers
-        run: python main.py
+        run: python main.py --force-all
       
       - name: 📤 Upload logs (if failed)
         if: failure()

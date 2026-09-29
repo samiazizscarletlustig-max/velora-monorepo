@@ -1,7 +1,7 @@
 """
 Velora - Advanced Competitive Market Intelligence Engine
 =========================================================
-PRODUCTION VERSION v3.5.0 - The AI Whisperer Edition (Lifecycle & Delta Fix)
+PRODUCTION VERSION v3.5.1 - The AI Whisperer Edition (Strict Tier Enforcement & Diagnostics)
 
 [OK] Cloud-Powered (Hugging Face Router - Multi-Provider Chain)
 [OK] Tier-Aware Scanning (Free / Pro / Pro Plus / Enterprise)
@@ -12,6 +12,7 @@ PRODUCTION VERSION v3.5.0 - The AI Whisperer Edition (Lifecycle & Delta Fix)
 [OK] AI Insights Lifecycle Managed (No Accumulation Bug)
 [OK] Historical Deltas Computed (Proves Active Monitoring)
 [OK] Token Optimization (No Duplicate Headline Stats)
+[OK] STRICT TIER ENFORCEMENT: Explicit logging for all skip/scan decisions
 
 Architecture:
   [GitHub Actions] -> [Scraper] -> [AI Analysis] -> [Supabase] -> [Flutter App]
@@ -41,8 +42,6 @@ from core.trend_analyzer import TrendAnalyzer
 # ===================================================================
 # TIER SYSTEM - Strict limits for each subscription tier
 # ===================================================================
-# IMPROVED: Raised ai_tokens per tier so the longer, deeper insights (150-200 words
-# free / 200-300 words pro) have room to complete without being truncated mid-JSON.
 TIER_LIMITS = {
     'free':       {'max_competitors': 3,    'scan_interval_hours': 24, 'max_products': 300,  'ai_depth': 'scientific', 'ai_tokens': 4000},
     'pro':        {'max_competitors': 10,   'scan_interval_hours': 6,  'max_products': 1000, 'ai_depth': 'executive',  'ai_tokens': 6000},
@@ -97,7 +96,7 @@ class Colors:
 
 def print_banner():
     print(f"\n{Colors.HEADER}{'='*80}{Colors.ENDC}")
-    print(f"{Colors.OKBLUE} Velora v3.5.0 - The AI Whisperer Edition (Lifecycle & Delta Fix){Colors.ENDC}")
+    print(f"{Colors.OKBLUE} Velora v3.5.1 - Strict Tier Enforcement & Diagnostics{Colors.ENDC}")
     print(f"{Colors.OKCYAN}   Surgical Precision - Zero Fluff - Active Monitoring Deltas{Colors.ENDC}")
     print(f"{Colors.HEADER}{'='*80}{Colors.ENDC}\n")
 
@@ -162,12 +161,13 @@ class DatabaseManager:
 
             for row in rows:
                 uid = row.get('user_id')
-                tier = tiers.get(uid, 'free')
+                # FIX: Explicitly handle missing user_id or missing tier lookup
+                tier = tiers.get(uid, 'free') if uid else 'free'
                 limits = TIER_LIMITS.get(tier, TIER_LIMITS['free'])
 
                 per_user[uid] = per_user.get(uid, 0) + 1
                 if per_user[uid] > limits['max_competitors']:
-                    self.logger.info(f"[SKIP] {row.get('name')}: tier '{tier}' cap reached")
+                    self.logger.info(f"[SKIP] {row.get('name')} (User: {uid}): tier '{tier}' cap ({limits['max_competitors']}) reached")
                     continue
 
                 if not force_all:
@@ -176,8 +176,18 @@ class DatabaseManager:
                         last_dt = datetime.fromisoformat(last.replace('Z', '+00:00'))
                         if last_dt.tzinfo is None:
                             last_dt = last_dt.replace(tzinfo=timezone.utc)
-                        if now - last_dt < timedelta(hours=limits['scan_interval_hours']):
+                        
+                        # DIAGNOSTIC: Calculate exact hours and log the decision
+                        hours_since_scan = (now - last_dt).total_seconds() / 3600
+                        required_hours = limits['scan_interval_hours']
+                        
+                        if hours_since_scan < required_hours:
+                            self.logger.info(f"[SKIP] {row.get('name')} (Tier: {tier}): scanned {hours_since_scan:.1f}h ago, requires {required_hours}h")
                             continue
+                        else:
+                            self.logger.info(f"[SCAN] {row.get('name')} (Tier: {tier}): READY! ({hours_since_scan:.1f}h >= {required_hours}h)")
+                    else:
+                        self.logger.info(f"[SCAN] {row.get('name')} (Tier: {tier}): READY! (Never scanned before)")
 
                 row['_tier'] = tier
                 row['_limits'] = limits
@@ -337,7 +347,7 @@ class DatabaseManager:
             return False
 
 # ===================================================================
-# DYNAMIC MARKET INTELLIGENCE ENGINE (v3.5 - AI WHISPERER)
+# DYNAMIC MARKET INTELLIGENCE ENGINE (v3.5.1)
 # ===================================================================
 class MarketIntelligenceEngine:
     PROVIDERS = [
@@ -939,7 +949,7 @@ class VeloraScraper:
             self.run_dynamic_mode(force_all=False)
 
 def main():
-    parser = argparse.ArgumentParser(description="Velora v3.5.0 - The AI Whisperer Edition (Lifecycle & Delta Fix)", formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(description="Velora v3.5.1 - Strict Tier Enforcement & Diagnostics", formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument('url', nargs='?', help='Store URL to scan (optional)')
     parser.add_argument('--continuous', '-c', action='store_true', help='Run continuously')
     parser.add_argument('--force-all', '-f', action='store_true', help='Force scan all competitors')
