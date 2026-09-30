@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     
     steps:
-      - name:  Checkout code
+      - name: 📥 Checkout code
         uses: actions/checkout@v4
       
       - name: 🐍 Setup Python
@@ -32,11 +32,12 @@ jobs:
           echo "SUPABASE_URL=${{ secrets.SUPABASE_URL }}" > .env
           echo "SUPABASE_SERVICE_ROLE_KEY=${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" >> .env
           echo "HF_API_KEY=${{ secrets.HF_API_KEY }}" >> .env
+          echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" >> .env
           echo "USE_LOCAL_OLLAMA=false" >> .env
           echo "SCAN_INTERVAL=86400" >> .env
           echo "MAX_RETRIES=3" >> .env
       
-      - name:  Run scan (Tier-Aware with Force-All)
+      - name: 🚀 Run scan (Tier-Aware with Force-All)
         working-directory: ./scrapers
         run: python main.py --force-all
       

@@ -1,21 +1,21 @@
 """
 Velora - Advanced Competitive Market Intelligence Engine
 =========================================================
-PRODUCTION VERSION v3.5.1 - The AI Whisperer Edition (Strict Tier Enforcement & Diagnostics)
+PRODUCTION VERSION v3.9.0 - Groq API with Bulletproof Response Parser
 
-[OK] Cloud-Powered (Hugging Face Router - Multi-Provider Chain)
+[OK] Cloud-Powered (Groq API only)
+[OK] Dynamic Groq model resolver with real probe testing
+[OK] Robust response extraction for standard, reasoning, and OSS-style models
 [OK] Tier-Aware Scanning (Free / Pro / Pro Plus / Enterprise)
-[OK] Dynamic AI Analysis (Strictly Optimized):
-   - Free: 4 Surgical, Data-Driven Insights (Upgrade Pressure)
-   - Pro: 8 Executive Insights + Scorecard + Financial Blueprint
 [OK] Price History Tracking & Strict Rate Limiting
 [OK] AI Insights Lifecycle Managed (No Accumulation Bug)
 [OK] Historical Deltas Computed (Proves Active Monitoring)
 [OK] Token Optimization (No Duplicate Headline Stats)
 [OK] STRICT TIER ENFORCEMENT: Explicit logging for all skip/scan decisions
+[OK] API KEY FORMAT: Requires valid Groq API key (starts with 'gsk_')
 
 Architecture:
-  [GitHub Actions] -> [Scraper] -> [AI Analysis] -> [Supabase] -> [Flutter App]
+  [GitHub Actions] -> [Scraper] -> [AI Analysis (Groq)] -> [Supabase] -> [Flutter App]
 """
 
 import os, sys, time, json, logging, argparse, re, inspect, asyncio, requests, statistics
@@ -81,6 +81,10 @@ logging.basicConfig(
 )
 logger = logging.getLogger('VeloraScraper')
 
+# Reduce noisy HTTP client logs
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 # ===================================================================
 # Color Codes (ASCII only, no emojis)
 # ===================================================================
@@ -96,7 +100,7 @@ class Colors:
 
 def print_banner():
     print(f"\n{Colors.HEADER}{'='*80}{Colors.ENDC}")
-    print(f"{Colors.OKBLUE} Velora v3.5.1 - Strict Tier Enforcement & Diagnostics{Colors.ENDC}")
+    print(f"{Colors.OKBLUE} Velora v3.9.0 - Groq API with Bulletproof Response Parser{Colors.ENDC}")
     print(f"{Colors.OKCYAN}   Surgical Precision - Zero Fluff - Active Monitoring Deltas{Colors.ENDC}")
     print(f"{Colors.HEADER}{'='*80}{Colors.ENDC}\n")
 
@@ -113,7 +117,8 @@ class Config:
     def __init__(self):
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        self.hf_api_key = os.getenv("HF_API_KEY")
+        self.groq_api_key = os.getenv("GROQ_API_KEY")
+        self.groq_model_override = os.getenv("GROQ_MODEL")
         self.scan_interval = int(os.getenv("SCAN_INTERVAL", "86400"))
         self.max_retries = int(os.getenv("MAX_RETRIES", "3"))
         
@@ -121,10 +126,20 @@ class Config:
         if not self.supabase_url or not self.supabase_key:
             print_error("Missing Supabase credentials in .env")
             return False
-        if not self.hf_api_key:
-            print_error("Missing HF_API_KEY in .env")
+
+        if not self.groq_api_key:
+            print_error("Missing GROQ_API_KEY in .env")
             return False
-        print_info("[CLOUD] Using Hugging Face Router (Multi-Provider Chain)")
+
+        if not self.groq_api_key.startswith("gsk_"):
+            print_error("Invalid GROQ_API_KEY format. Groq keys must start with 'gsk_'.")
+            return False
+
+        if self.groq_model_override:
+            print_info(f"[CLOUD] Using Groq API with manual model override: {self.groq_model_override}")
+        else:
+            print_info("[CLOUD] Using Groq API with automatic model resolver")
+
         return True
 
 # ===================================================================
@@ -161,7 +176,6 @@ class DatabaseManager:
 
             for row in rows:
                 uid = row.get('user_id')
-                # FIX: Explicitly handle missing user_id or missing tier lookup
                 tier = tiers.get(uid, 'free') if uid else 'free'
                 limits = TIER_LIMITS.get(tier, TIER_LIMITS['free'])
 
@@ -177,7 +191,6 @@ class DatabaseManager:
                         if last_dt.tzinfo is None:
                             last_dt = last_dt.replace(tzinfo=timezone.utc)
                         
-                        # DIAGNOSTIC: Calculate exact hours and log the decision
                         hours_since_scan = (now - last_dt).total_seconds() / 3600
                         required_hours = limits['scan_interval_hours']
                         
@@ -203,22 +216,32 @@ class DatabaseManager:
         try:
             for check_url in [url, url.rstrip("/") + "/" if not url.endswith("/") else url.rstrip("/")]:
                 response = self.supabase.table("competitors").select("id, name, website, user_id").eq("website", check_url).execute()
-                if response.data: return response.data[0]
+                if response.data:
+                    return response.data[0]
             
             store_name = urlparse(url).netloc.replace('www.', '').split('.')[0].capitalize()
             
             if not user_id:
-                users = self.supabase.auth.admin.list_users().get('users', [])
+                result = self.supabase.auth.admin.list_users()
+                if isinstance(result, dict):
+                    users = result.get('users', [])
+                else:
+                    users = getattr(result, 'users', []) or []
+
                 if not users:
                     print_error("No users found in auth.users.")
                     return None
                 user_id = users[0]['id']
             
             response = self.supabase.table("competitors").insert({
-                'name': store_name, 'website': url, 'user_id': user_id,
+                'name': store_name,
+                'website': url,
+                'user_id': user_id,
                 'created_at': datetime.now(timezone.utc).isoformat()
             }).execute()
-            if response.data: print_success(f"Created competitor: {store_name} for user {user_id}")
+
+            if response.data:
+                print_success(f"Created competitor: {store_name} for user {user_id}")
             return response.data[0] if response.data else None
         except Exception as e:
             self.logger.error(f"Failed to create competitor: {e}")
@@ -249,14 +272,19 @@ class DatabaseManager:
                         "recorded_at": now
                     })
             
-            if not history_rows: return 0
+            if not history_rows:
+                return 0
             
             try:
                 self.supabase.table("price_history").insert(history_rows).execute()
                 self.logger.info(f"Saved {len(history_rows)} price history records")
                 return len(history_rows)
             except Exception as e:
-                self.logger.warning(f"price_history table may not exist yet: {e}")
+                msg = str(e)
+                if "price_history" in msg and "competitor_id" in msg:
+                    self.logger.warning("price_history table/schema is broken or missing competitor_id. Run the Supabase SQL fix.")
+                else:
+                    self.logger.warning(f"price_history insert failed: {e}")
                 return 0
         except Exception as e:
             self.logger.error(f"Failed to save price history: {e}")
@@ -285,7 +313,8 @@ class DatabaseManager:
                 .limit(8)
                 .execute()
             )
-            if not response.data: return None
+            if not response.data:
+                return None
             return {"previous_insights": response.data}
         except Exception as e:
             self.logger.warning(f"Could not fetch previous scan: {e}")
@@ -324,7 +353,7 @@ class DatabaseManager:
                     "title": insight.get("title", "Trend Analysis"),
                     "summary": insight.get("summary", ""),
                     "ai_recommendation": insight.get("recommendation", ""),
-                    "severity": insight.get("severity", "medium").lower(),
+                    "severity": str(insight.get("severity", "medium")).lower(),
                     "created_at": datetime.now(timezone.utc).isoformat()
                 })
             if formatted_insights:
@@ -347,16 +376,26 @@ class DatabaseManager:
             return False
 
 # ===================================================================
-# DYNAMIC MARKET INTELLIGENCE ENGINE (v3.5.1)
+# DYNAMIC MARKET INTELLIGENCE ENGINE (v3.9.0)
 # ===================================================================
 class MarketIntelligenceEngine:
     PROVIDERS = [
-        {"name": "Llama-3.3-70B", "model": "meta-llama/Llama-3.3-70B-Instruct", "url": "https://router.huggingface.co/v1/chat/completions"},
-        {"name": "Qwen-2.5-72B", "model": "Qwen/Qwen2.5-72B-Instruct", "url": "https://router.huggingface.co/v1/chat/completions"},
-        {"name": "Mixtral-8x7B", "model": "mistralai/Mixtral-8x7B-Instruct-v0.1", "url": "https://router.huggingface.co/v1/chat/completions"},
+        {
+            "name": "Groq (Bulletproof)",
+            "url": "https://api.groq.com/openai/v1/chat/completions",
+            "type": "groq"
+        }
     ]
 
-    CATEGORY_KEYWORDS = ["shirt", "pant", "shoe", "dress", "jacket", "bag", "hat", "sock", "accessory", "sweater", "hoodie", "short", "skirt", "coat", "boot", "sandal", "sneaker", "scarf", "belt", "watch", "jewelry"]
+    GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
+    GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
+    _cached_groq_model: Optional[str] = None
+
+    CATEGORY_KEYWORDS = [
+        "shirt", "pant", "shoe", "dress", "jacket", "bag", "hat", "sock",
+        "accessory", "sweater", "hoodie", "short", "skirt", "coat", "boot",
+        "sandal", "sneaker", "scarf", "belt", "watch", "jewelry"
+    ]
     PROMOTION_KEYWORDS = ["sale", "off", "discount", "limited", "new", "bestseller", "clearance"]
 
     def __init__(self, competitor: Dict[str, Any], products: List[Dict[str, Any]], previous_scan: Optional[Dict[str, Any]] = None):
@@ -367,19 +406,448 @@ class MarketIntelligenceEngine:
         self.tier = competitor.get('_tier', 'free')
         self.limits = competitor.get('_limits', TIER_LIMITS['free'])
         self.logger = logging.getLogger('MarketIntelligence')
-        self.hf_api_key = os.getenv("HF_API_KEY")
+        self.groq_api_key = os.getenv("GROQ_API_KEY")
 
     def generate_all_insights(self) -> List[Dict[str, Any]]:
         return self._generate_advanced_insights()
 
+    # ===================================================================
+    # ROBUST GROQ TRANSPORT / MODEL RESOLVER
+    # ===================================================================
+    def _is_non_chat_model(self, model_id: str) -> bool:
+        """
+        Exclude models that are usually not normal text/chat completion models
+        or models that require special terms/access.
+        """
+        s = (model_id or "").lower()
+
+        blocked_keywords = [
+            "prompt",
+            "guard",
+            "safeguard",
+            "embedding",
+            "embed",
+            "whisper",
+            "tts",
+            "stt",
+            "audio",
+            "speech",
+            "voice",
+            "orpheus",
+            "vision",
+            "image",
+            "ocr",
+            "rerank",
+            "classifier",
+        ]
+
+        return any(keyword in s for keyword in blocked_keywords)
+
+    def _coerce_text(self, value: Any) -> str:
+        """
+        Convert common Groq/OpenAI response content shapes to plain text.
+        """
+        if value is None:
+            return ""
+
+        if isinstance(value, str):
+            return value.strip()
+
+        if isinstance(value, list):
+            parts = []
+            for item in value:
+                if isinstance(item, dict):
+                    txt = item.get("text") or item.get("content") or item.get("value") or ""
+                    parts.append(str(txt))
+                else:
+                    parts.append(str(item))
+            return "".join(parts).strip()
+
+        if isinstance(value, dict):
+            return str(value.get("text") or value.get("content") or "").strip()
+
+        return str(value).strip()
+
+    def _extract_text_from_groq_response(self, data: Any) -> str:
+        """
+        Robustly extract text from Groq chat completion response.
+        Handles:
+        - choices[0].message.content
+        - choices[0].message.reasoning_content
+        - choices[0].message.reasoning
+        - choices[0].text
+        - content as list of parts
+        """
+        try:
+            if not isinstance(data, dict):
+                return ""
+
+            choices = data.get("choices") or []
+            if not isinstance(choices, list) or not choices:
+                return ""
+
+            first = choices[0]
+            if not isinstance(first, dict):
+                return ""
+
+            message = first.get("message") or {}
+            delta = first.get("delta") or {}
+
+            candidates = []
+
+            if isinstance(message, dict):
+                candidates.extend([
+                    message.get("content"),
+                    message.get("reasoning_content"),
+                    message.get("reasoning"),
+                    message.get("text"),
+                ])
+            elif isinstance(message, str):
+                candidates.append(message)
+
+            if isinstance(delta, dict):
+                candidates.extend([
+                    delta.get("content"),
+                    delta.get("reasoning_content"),
+                    delta.get("reasoning"),
+                    delta.get("text"),
+                ])
+
+            candidates.extend([
+                first.get("text"),
+                first.get("content"),
+                data.get("content"),
+                data.get("text"),
+            ])
+
+            for candidate in candidates:
+                text = self._coerce_text(candidate)
+                if text:
+                    return text
+
+            return ""
+
+        except Exception:
+            return ""
+
+    def _build_groq_payload(
+        self,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int,
+        mode: str
+    ) -> Dict[str, Any]:
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
+
+        if mode == "completion_tokens":
+            return {
+                "model": model,
+                "messages": messages,
+                "max_completion_tokens": max_tokens,
+                "temperature": 0.3,
+                "top_p": 0.9,
+            }
+
+        if mode == "temp1":
+            return {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+                "temperature": 1,
+                "top_p": 1,
+            }
+
+        if mode == "minimal":
+            return {
+                "model": model,
+                "messages": messages,
+                "max_tokens": max_tokens,
+            }
+
+        if mode == "user_only":
+            return {
+                "model": model,
+                "messages": [
+                    {"role": "user", "content": f"{system_prompt}\n\n{user_prompt}"}
+                ],
+                "max_tokens": max_tokens,
+                "temperature": 0.3,
+                "top_p": 0.9,
+            }
+
+        # standard
+        return {
+            "model": model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+            "temperature": 0.3,
+            "top_p": 0.9,
+        }
+
+    def _post_groq_chat(
+        self,
+        model: str,
+        system_prompt: str,
+        user_prompt: str,
+        max_tokens: int
+    ) -> Optional[str]:
+        """
+        Send chat request to Groq and try multiple compatible payload modes.
+        This is important because some Groq models reject temperature/top_p
+        or require max_completion_tokens instead of max_tokens.
+        """
+        if not self.groq_api_key:
+            self.logger.warning("No GROQ_API_KEY found.")
+            return None
+
+        # Reasoning/OSS-like models may consume tokens internally.
+        effective_max_tokens = max_tokens
+        model_lower = (model or "").lower()
+        if any(token in model_lower for token in ["oss", "reason", "o1", "o3", "qwq"]):
+            effective_max_tokens = max(max_tokens, 8192)
+
+        modes = ["standard", "completion_tokens", "temp1", "minimal", "user_only"]
+        last_debug = ""
+
+        for mode in modes:
+            try:
+                payload = self._build_groq_payload(
+                    model=model,
+                    system_prompt=system_prompt,
+                    user_prompt=user_prompt,
+                    max_tokens=effective_max_tokens,
+                    mode=mode
+                )
+
+                response = requests.post(
+                    self.GROQ_CHAT_URL,
+                    headers={
+                        "Authorization": f"Bearer {self.groq_api_key}",
+                        "Content-Type": "application/json"
+                    },
+                    json=payload,
+                    timeout=300
+                )
+
+                if response.status_code == 200:
+                    try:
+                        data = response.json()
+                    except Exception:
+                        data = {}
+
+                    if isinstance(data, dict) and data.get("error"):
+                        last_debug = f"{mode}: HTTP 200 but payload error: {str(data.get('error'))[:220]}"
+                        continue
+
+                    text = self._extract_text_from_groq_response(data)
+                    if text:
+                        print_success(f"  -> Groq model {model} responded via {mode} ({len(text)} chars)")
+                        return text
+
+                    debug = {
+                        "top_keys": list(data.keys()) if isinstance(data, dict) else str(type(data))
+                    }
+
+                    if isinstance(data, dict) and data.get("choices"):
+                        first_choice = data["choices"][0] if isinstance(data["choices"], list) and data["choices"] else {}
+                        if isinstance(first_choice, dict):
+                            debug["choice_keys"] = list(first_choice.keys())
+                            msg = first_choice.get("message")
+                            if isinstance(msg, dict):
+                                debug["message_keys"] = list(msg.keys())
+                                content = msg.get("content")
+                                debug["content_type"] = str(type(content))
+
+                    last_debug = f"{mode}: HTTP 200 but no extractable text. {debug}"
+
+                else:
+                    last_debug = f"{mode}: HTTP {response.status_code} {response.text[:220]}"
+
+            except Exception as e:
+                last_debug = f"{mode}: exception {str(e)[:180]}"
+
+        self.logger.warning(f"  -> Groq model {model} failed all payload modes. Last debug: {last_debug}")
+        return None
+
+    def _probe_groq_chat_model(self, model_id: str) -> bool:
+        """
+        Send a tiny real request to verify this Groq model actually returns text.
+        """
+        text = self._post_groq_chat(
+            model=model_id,
+            system_prompt="You are a connectivity test assistant.",
+            user_prompt="Reply with exactly: OK",
+            max_tokens=256
+        )
+        return bool(text)
+
+    def _get_groq_model_candidates(self) -> List[str]:
+        """
+        Build ordered candidate list:
+        1. GROQ_MODEL from .env
+        2. Preferred visible models
+        3. All visible non-blocked models
+        4. Preferred hardcoded models
+        """
+        candidates: List[str] = []
+        seen = set()
+
+        def add_model(model_id: Optional[str]):
+            model_id = (model_id or "").strip()
+            if not model_id:
+                return
+            if model_id in seen:
+                return
+            if self._is_non_chat_model(model_id):
+                return
+            candidates.append(model_id)
+            seen.add(model_id)
+
+        # 1. Manual override
+        manual_model = os.getenv("GROQ_MODEL")
+        add_model(manual_model)
+
+        preferred = [
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b",
+            "qwen/qwen3.8-27b",
+            "allam-2-7b",
+            "llama-3.3-70b-versatile",
+            "llama-3.1-70b-versatile",
+            "llama-3.1-8b-instant",
+            "llama-3.2-3b-instruct",
+            "llama-3.2-1b-instruct",
+            "mixtral-8x7b-32768",
+            "gemma2-9b-it",
+        ]
+
+        # 2. Fetch visible models for this API key
+        visible_models: List[str] = []
+        try:
+            response = requests.get(
+                self.GROQ_MODELS_URL,
+                headers={
+                    "Authorization": f"Bearer {self.groq_api_key}",
+                    "Content-Type": "application/json"
+                },
+                timeout=45
+            )
+
+            if response.status_code == 200:
+                models_data = response.json().get("data", [])
+                visible_models = [
+                    m.get("id") for m in models_data
+                    if isinstance(m, dict) and m.get("id")
+                ]
+                print_info(f"[SMART] Groq returned {len(visible_models)} visible models")
+            else:
+                self.logger.warning(f"Could not list Groq models: {response.status_code} {response.text[:200]}")
+
+        except Exception as e:
+            self.logger.warning(f"Could not fetch Groq models dynamically: {e}")
+
+        # 3. Preferred models that are actually visible
+        for model_id in preferred:
+            if model_id in visible_models:
+                add_model(model_id)
+
+        # 4. All visible non-blocked models
+        for model_id in visible_models:
+            add_model(model_id)
+
+        # 5. Preferred hardcoded fallbacks
+        for model_id in preferred:
+            add_model(model_id)
+
+        return candidates[:20]
+
+    def _get_working_groq_model(self) -> str:
+        """
+        Probe candidates and cache the first model that truly returns text.
+        """
+        cached = MarketIntelligenceEngine._cached_groq_model
+        if cached:
+            print_info(f"[SMART] Using cached Groq chat model: {cached}")
+            return cached
+
+        candidates = self._get_groq_model_candidates()
+
+        if not candidates:
+            print_error("❌ CRITICAL: No usable Groq chat model candidates found.")
+            sys.exit(1)
+
+        for model_id in candidates:
+            print_info(f"[PROBE] Testing Groq model: {model_id}")
+            if self._probe_groq_chat_model(model_id):
+                MarketIntelligenceEngine._cached_groq_model = model_id
+                print_success(f"[SMART] Working Groq chat model selected: {model_id}")
+                return model_id
+            time.sleep(1)
+
+        print_warning("[WARN] All Groq model probes failed. Returning first candidate for final attempt.")
+        first = candidates[0]
+        MarketIntelligenceEngine._cached_groq_model = first
+        return first
+
+    def _call_ai_provider(self, system_prompt: str, user_prompt: str, max_tokens: int) -> Optional[str]:
+        """
+        Final Groq caller:
+        - validates key
+        - resolves working model
+        - tries multiple models if the first one fails on the real prompt
+        """
+        if not self.groq_api_key:
+            self.logger.warning("No GROQ_API_KEY found in .env")
+            return None
+
+        if not self.groq_api_key.startswith("gsk_"):
+            print_error("❌ CRITICAL ERROR: Invalid GROQ_API_KEY!")
+            print_error(f"Your key starts with: '{self.groq_api_key[:5]}...'")
+            print_error("Groq keys MUST start with 'gsk_'.")
+            print_error("Please go to https://console.groq.com/keys and create a NEW Groq API key.")
+            sys.exit(1)
+
+        working_model = self._get_working_groq_model()
+        candidates = self._get_groq_model_candidates()
+
+        models_to_try: List[str] = []
+        seen = set()
+
+        for model_id in [working_model] + candidates:
+            if model_id and model_id not in seen:
+                seen.add(model_id)
+                models_to_try.append(model_id)
+
+        for model_id in models_to_try[:8]:
+            print_info(f"Attempting to use chat model: {model_id}")
+            text = self._post_groq_chat(
+                model=model_id,
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=max_tokens
+            )
+
+            if text:
+                MarketIntelligenceEngine._cached_groq_model = model_id
+                return text
+
+        return None
+
     def _analyze_competitor_data(self) -> Dict[str, Any]:
         prices = [p.get("current_price", 0) for p in self.products if p.get("current_price") and p.get("current_price") > 0]
-        if not prices: return {"error": "No pricing data available"}
+        if not prices:
+            return {"error": "No pricing data available"}
         
         avg_price = sum(prices) / len(prices)
         median_price = statistics.median(prices)
-        try: stdev_price = statistics.stdev(prices) if len(prices) > 1 else 0
-        except: stdev_price = 0
+        try:
+            stdev_price = statistics.stdev(prices) if len(prices) > 1 else 0
+        except Exception:
+            stdev_price = 0
         
         budget_threshold = avg_price * 0.6
         premium_threshold = avg_price * 1.5
@@ -395,7 +863,8 @@ class MarketIntelligenceEngine:
         for p in self.products:
             title = str(p.get("title", "")).lower()
             for kw in self.CATEGORY_KEYWORDS:
-                if kw in title: category_counts[kw] += 1
+                if kw in title:
+                    category_counts[kw] += 1
             for promo in self.PROMOTION_KEYWORDS:
                 if promo in title:
                     promotion_count += 1
@@ -444,10 +913,14 @@ class MarketIntelligenceEngine:
             "products_with_pricing": len(prices),
             "headline_stats": headline_stats,
             "pricing_intelligence": {
-                "average_price": round(avg_price, 2), "median_price": round(median_price, 2),
-                "standard_deviation": round(stdev_price, 2), "lowest_price": round(min(prices), 2),
-                "highest_price": round(max(prices), 2), "price_spread": round(max(prices) - min(prices), 2),
-                "price_coefficient_of_variation": cov, "cov_interpretation": cov_interp
+                "average_price": round(avg_price, 2),
+                "median_price": round(median_price, 2),
+                "standard_deviation": round(stdev_price, 2),
+                "lowest_price": round(min(prices), 2),
+                "highest_price": round(max(prices), 2),
+                "price_spread": round(max(prices) - min(prices), 2),
+                "price_coefficient_of_variation": cov,
+                "cov_interpretation": cov_interp
             },
             "market_positioning": {
                 "budget_segment": {"count": len(budget_products), "percentage": round(len(budget_products)/len(prices)*100, 1)},
@@ -456,7 +929,8 @@ class MarketIntelligenceEngine:
             },
             "category_intelligence": {
                 "top_5_categories": [{"category": k, "count": v} for k, v in top_categories], 
-                "hhi_index": hhi_score, "hhi_interpretation": hhi_interp
+                "hhi_index": hhi_score,
+                "hhi_interpretation": hhi_interp
             },
             "promotion_signals": {"products_with_promo_keywords": promotion_count, "promo_percentage": promo_pct},
             "price_gaps": price_gap_ratios,
@@ -597,97 +1071,139 @@ Return ONLY valid JSON."""
 
         return system_prompt, user_prompt, max_tokens
 
-    def _call_ai_provider(self, system_prompt: str, user_prompt: str, max_tokens: int) -> Optional[str]:
-        for i, provider in enumerate(self.PROVIDERS):
-            try:
-                print(f"\n[CLOUD] [{i+1}/{len(self.PROVIDERS)}] Calling {provider['name']}...")
-                response = requests.post(
-                    provider["url"],
-                    headers={"Authorization": f"Bearer {self.hf_api_key}", "Content-Type": "application/json"},
-                    json={
-                        "model": provider["model"],
-                        "messages": [{"role": "system", "content": system_prompt}, {"role": "user", "content": user_prompt}],
-                        "max_tokens": max_tokens,
-                        "temperature": 0.3,
-                        "top_p": 0.9,
-                    },
-                    timeout=150
-                )
-                
-                if response.status_code != 200:
-                    self.logger.warning(f"  -> {provider['name']} returned {response.status_code}: {response.text[:200]}")
-                    continue
-                
-                data = response.json()
-                if "choices" in data and len(data["choices"]) > 0:
-                    text = data["choices"][0].get("message", {}).get("content", "")
-                    if text:
-                        print_success(f"  -> {provider['name']} responded successfully ({len(text)} chars)")
-                        return text
-                
-                self.logger.warning(f"  -> {provider['name']} returned empty/unexpected format")
-                continue
-            except Exception as e:
-                self.logger.warning(f"  -> {provider['name']} error: {str(e)[:100]}")
-                continue
-        return None
-
     def _parse_ai_response(self, text: str, analysis_data: Dict) -> List[Dict[str, Any]]:
         try:
             text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.IGNORECASE).strip()
             text = re.sub(r'\s*```$', '', text).strip()
             start_idx, end_idx = text.find('{'), text.rfind('}')
-            if start_idx != -1 and end_idx != -1: text = text[start_idx:end_idx+1]
+            if start_idx != -1 and end_idx != -1:
+                text = text[start_idx:end_idx+1]
             
             ai_response = json.loads(text.strip())
+            if not isinstance(ai_response, dict):
+                raise ValueError("AI response is not a JSON object")
+
             insights = []
             timestamp = datetime.now(timezone.utc).isoformat()
-            comp_id = self.competitor['id']
-            valid_types = {"pricing_warfare", "product_gap", "competitive_threat", "counter_move", "market_timing", "brand_positioning", "customer_psychology", "supply_chain_signal", "category_dominance"}
+            comp_id = self.competitor.get('id')
+            valid_types = {
+                "pricing_warfare", "product_gap", "competitive_threat", "counter_move",
+                "market_timing", "brand_positioning", "customer_psychology",
+                "supply_chain_signal", "category_dominance"
+            }
             
-            has_numbers = any(re.search(r'\d', str(insight.get('ai_recommendation', '')) + str(insight.get('summary', ''))) for insight in ai_response.get('insights', []))
-            if not has_numbers and len(ai_response.get('insights', [])) > 0:
+            raw_insights = ai_response.get('insights', [])
+            if isinstance(raw_insights, dict):
+                raw_insights = [raw_insights]
+            if not isinstance(raw_insights, list):
+                raw_insights = []
+
+            has_numbers = any(
+                re.search(r'\d', str(insight.get('ai_recommendation', '')) + str(insight.get('summary', '')))
+                for insight in raw_insights
+            )
+            if not has_numbers and len(raw_insights) > 0:
                 self.logger.warning("[WARN] AI response has few/no numeric data points - using it anyway.")
             
             if self.tier == 'free':
                 exec_summary = ai_response.get('executive_summary', '')
                 if exec_summary:
-                    insights.append({"competitor_id": comp_id, "type": "executive_summary", "title": "Market Overview", "summary": str(exec_summary).strip(), "ai_recommendation": "Review insights below. Upgrade to Pro for detailed financial projections, unit targets, and execution timelines.", "severity": "medium", "created_at": timestamp})
-                
-                for i, insight in enumerate(ai_response.get('insights', [])[:4]):
-                    severity = str(insight.get('severity', 'medium')).lower()
-                    if severity not in {"critical", "high", "medium", "low"}: severity = "medium"
                     insights.append({
-                        "competitor_id": comp_id, "type": str(insight.get('type', 'general')).lower(),
+                        "competitor_id": comp_id,
+                        "type": "executive_summary",
+                        "title": "Market Overview",
+                        "summary": str(exec_summary).strip(),
+                        "ai_recommendation": "Review insights below. Upgrade to Pro for detailed financial projections, unit targets, and execution timelines.",
+                        "severity": "medium",
+                        "created_at": timestamp
+                    })
+                
+                for i, insight in enumerate(raw_insights[:4]):
+                    if not isinstance(insight, dict):
+                        continue
+                    severity = str(insight.get('severity', 'medium')).lower()
+                    if severity not in {"critical", "high", "medium", "low"}:
+                        severity = "medium"
+                    insights.append({
+                        "competitor_id": comp_id,
+                        "type": str(insight.get('type', 'general')).lower(),
                         "title": str(insight.get('title', f'Insight #{i+1}')).strip()[:200],
                         "summary": str(insight.get('summary', '')).strip(),
                         "ai_recommendation": str(insight.get('ai_recommendation', '')).strip(),
-                        "severity": severity, "created_at": timestamp
+                        "severity": severity,
+                        "created_at": timestamp
                     })
             else:
                 exec_summary = ai_response.get('executive_summary', '')
                 if exec_summary:
-                    insights.append({"competitor_id": comp_id, "type": "executive_summary", "title": "Executive Briefing", "summary": str(exec_summary).strip(), "ai_recommendation": "Review the full strategic package below and prioritize the top 2 quick wins.", "severity": "high", "created_at": timestamp})
+                    insights.append({
+                        "competitor_id": comp_id,
+                        "type": "executive_summary",
+                        "title": "Executive Briefing",
+                        "summary": str(exec_summary).strip(),
+                        "ai_recommendation": "Review the full strategic package below and prioritize the top 2 quick wins.",
+                        "severity": "high",
+                        "created_at": timestamp
+                    })
                 
                 scorecard = ai_response.get('competitive_scorecard', {})
-                if scorecard:
-                    scorecard_text = " | ".join([f"{k.replace('_', ' ').title()}: {v.get('score', 0)}/10 - {v.get('rationale', '')[:100]}" for k, v in scorecard.items() if isinstance(v, dict)])
-                    insights.append({"competitor_id": comp_id, "type": "scorecard", "title": "Competitive Scorecard", "summary": scorecard_text, "ai_recommendation": "Focus on the lowest-scoring area for immediate competitive advantage.", "severity": "medium", "created_at": timestamp})
+                if scorecard and isinstance(scorecard, dict):
+                    scorecard_text = " | ".join([
+                        f"{k.replace('_', ' ').title()}: {v.get('score', 0)}/10 - {str(v.get('rationale', ''))[:100]}"
+                        for k, v in scorecard.items() if isinstance(v, dict)
+                    ])
+                    insights.append({
+                        "competitor_id": comp_id,
+                        "type": "scorecard",
+                        "title": "Competitive Scorecard",
+                        "summary": scorecard_text,
+                        "ai_recommendation": "Focus on the lowest-scoring area for immediate competitive advantage.",
+                        "severity": "medium",
+                        "created_at": timestamp
+                    })
                 
-                for i, insight in enumerate(ai_response.get('insights', [])[:8]):
+                for i, insight in enumerate(raw_insights[:8]):
+                    if not isinstance(insight, dict):
+                        continue
                     insight_type = str(insight.get('type', 'general')).lower()
-                    if insight_type not in valid_types: insight_type = "general"
+                    if insight_type not in valid_types:
+                        insight_type = "general"
                     severity = str(insight.get('severity', 'medium')).lower()
-                    if severity not in {"critical", "high", "medium", "low"}: severity = "medium"
-                    insights.append({"competitor_id": comp_id, "type": insight_type, "title": str(insight.get('title', f'Insight #{i+1}')).strip()[:200], "summary": str(insight.get('summary', '')).strip(), "ai_recommendation": str(insight.get('ai_recommendation', '')).strip(), "severity": severity, "created_at": timestamp})
+                    if severity not in {"critical", "high", "medium", "low"}:
+                        severity = "medium"
+                    insights.append({
+                        "competitor_id": comp_id,
+                        "type": insight_type,
+                        "title": str(insight.get('title', f'Insight #{i+1}')).strip()[:200],
+                        "summary": str(insight.get('summary', '')).strip(),
+                        "ai_recommendation": str(insight.get('ai_recommendation', '')).strip(),
+                        "severity": severity,
+                        "created_at": timestamp
+                    })
                 
                 financial_blueprint = ai_response.get('financial_execution_blueprint', '')
                 if financial_blueprint:
-                    insights.append({"competitor_id": comp_id, "type": "financial_blueprint", "title": "Financial Execution Blueprint", "summary": "Detailed rollout plan", "ai_recommendation": str(financial_blueprint).strip(), "severity": "critical", "created_at": timestamp})
+                    insights.append({
+                        "competitor_id": comp_id,
+                        "type": "financial_blueprint",
+                        "title": "Financial Execution Blueprint",
+                        "summary": "Detailed rollout plan",
+                        "ai_recommendation": str(financial_blueprint).strip(),
+                        "severity": "critical",
+                        "created_at": timestamp
+                    })
                 
                 quick_wins = ai_response.get('quick_wins', [])
                 if quick_wins and isinstance(quick_wins, list):
-                    insights.append({"competitor_id": comp_id, "type": "quick_wins", "title": "Quick Wins (Execute in 7 Days)", "summary": "\n".join([f"- {w}" for w in quick_wins[:5]]), "ai_recommendation": "Assign these to your growth team immediately.", "severity": "high", "created_at": timestamp})
+                    insights.append({
+                        "competitor_id": comp_id,
+                        "type": "quick_wins",
+                        "title": "Quick Wins (Execute in 7 Days)",
+                        "summary": "\n".join([f"- {w}" for w in quick_wins[:5]]),
+                        "ai_recommendation": "Assign these to your growth team immediately.",
+                        "severity": "high",
+                        "created_at": timestamp
+                    })
                 
                 strategic_timeline = ai_response.get('strategic_timeline', {})
                 if strategic_timeline and isinstance(strategic_timeline, dict):
@@ -696,11 +1212,27 @@ Return ONLY valid JSON."""
                         for label, milestone in strategic_timeline.items() if milestone
                     ])
                     if timeline_text:
-                        insights.append({"competitor_id": comp_id, "type": "strategic_timeline", "title": "Strategic Timeline (30-60-90 Day)", "summary": timeline_text, "ai_recommendation": "Assign an owner and a check-in date to each milestone above.", "severity": "medium", "created_at": timestamp})
+                        insights.append({
+                            "competitor_id": comp_id,
+                            "type": "strategic_timeline",
+                            "title": "Strategic Timeline (30-60-90 Day)",
+                            "summary": timeline_text,
+                            "ai_recommendation": "Assign an owner and a check-in date to each milestone above.",
+                            "severity": "medium",
+                            "created_at": timestamp
+                        })
                 
                 risk = ai_response.get('risk_assessment', '')
                 if risk:
-                    insights.append({"competitor_id": comp_id, "type": "risk_assessment", "title": "Risk Assessment", "summary": str(risk).strip(), "ai_recommendation": "Treat this as a 30-day warning window. Begin mitigation immediately.", "severity": "high", "created_at": timestamp})
+                    insights.append({
+                        "competitor_id": comp_id,
+                        "type": "risk_assessment",
+                        "title": "Risk Assessment",
+                        "summary": str(risk).strip(),
+                        "ai_recommendation": "Treat this as a 30-day warning window. Begin mitigation immediately.",
+                        "severity": "high",
+                        "created_at": timestamp
+                    })
             
             self.logger.info(f"[AI] Generated {len(insights)} insights for tier: {self.tier}")
             return insights
@@ -716,14 +1248,16 @@ Return ONLY valid JSON."""
         try:
             print(f"\n[ANALYZE] Analyzing market positioning for {self.name} (tier: {self.tier})...")
             analysis_data = self._analyze_competitor_data()
-            if "error" in analysis_data: return self._generate_fallback_insights()
+            if "error" in analysis_data:
+                return self._generate_fallback_insights()
             
             system_prompt, user_prompt, max_tokens = self._build_strategic_prompt(analysis_data)
             print(f"\n[AI] Generating {self.tier.upper()} strategic package...")
             print("[WAIT] Deep market analysis in progress...")
             
             ai_text = self._call_ai_provider(system_prompt, user_prompt, max_tokens)
-            if ai_text: return self._parse_ai_response(ai_text, analysis_data)
+            if ai_text:
+                return self._parse_ai_response(ai_text, analysis_data)
             
             self.logger.warning("[WARN] All AI providers failed - using fallback template")
             return self._generate_fallback_insights()
@@ -735,13 +1269,35 @@ Return ONLY valid JSON."""
         timestamp = datetime.now(timezone.utc).isoformat()
         prices = [p.get("current_price") for p in self.products if p.get("current_price")]
         insights = []
-        comp_id = self.competitor['id']
-        
-        insights.append({"competitor_id": comp_id, "type": "executive_summary", "title": "Executive Briefing (Baseline)", "summary": f"Scanned {len(self.products)} products from {self.name}. Average price: ${sum(prices)/len(prices):.2f} across {len(prices)} priced items.", "ai_recommendation": "AI providers were temporarily busy. Baseline analysis generated. Re-scan in 24 hours for full strategic package.", "severity": "medium", "created_at": timestamp})
+        comp_id = self.competitor.get('id')
         
         if prices:
             avg_price = sum(prices) / len(prices)
-            insights.append({"competitor_id": comp_id, "type": "pricing_warfare", "title": "Baseline Pricing Intelligence", "summary": f"Average market price: ${avg_price:.2f} across {len(prices)} products. Range: ${min(prices):.2f} to ${max(prices):.2f}.", "ai_recommendation": "Position core competing products within 10% of this average to maintain market parity.", "severity": "medium", "created_at": timestamp})
+            summary = f"Scanned {len(self.products)} products from {self.name}. Average price: ${avg_price:.2f} across {len(prices)} priced items."
+        else:
+            avg_price = 0
+            summary = f"Scanned {len(self.products)} products from {self.name}. No priced items were detected in this scan."
+
+        insights.append({
+            "competitor_id": comp_id,
+            "type": "executive_summary",
+            "title": "Executive Briefing (Baseline)",
+            "summary": summary,
+            "ai_recommendation": "AI providers were temporarily unavailable or returned incompatible formats. Baseline analysis generated. Re-scan later for full strategic package.",
+            "severity": "medium",
+            "created_at": timestamp
+        })
+        
+        if prices:
+            insights.append({
+                "competitor_id": comp_id,
+                "type": "pricing_warfare",
+                "title": "Baseline Pricing Intelligence",
+                "summary": f"Average market price: ${avg_price:.2f} across {len(prices)} products. Range: ${min(prices):.2f} to ${max(prices):.2f}.",
+                "ai_recommendation": "Position core competing products within 10% of this average to maintain market parity.",
+                "severity": "medium",
+                "created_at": timestamp
+            })
         
         self.logger.info(f"[WARN] Generated {len(insights)} fallback insights")
         return insights
@@ -751,11 +1307,16 @@ Return ONLY valid JSON."""
 # ===================================================================
 class ScraperEngine:
     def __init__(self):
-        self.scrapers = {'shopify': scrape_shopify, 'woocommerce': scrape_woocommerce, 'generic': scrape_generic}
+        self.scrapers = {
+            'shopify': scrape_shopify,
+            'woocommerce': scrape_woocommerce,
+            'generic': scrape_generic
+        }
         self.logger = logging.getLogger('ScraperEngine')
     
     def scrape(self, url: str, platform: str = None, max_retries: int = 3, max_products: int = 9999) -> List[Dict[str, Any]]:
-        if not platform: platform = detect_platform(url)
+        if not platform:
+            platform = detect_platform(url)
         scraper_func = self.scrapers.get(platform, scrape_generic)
         
         for attempt in range(max_retries):
@@ -771,7 +1332,8 @@ class ScraperEngine:
                     return products
             except Exception as e:
                 self.logger.error(f"Scraper failed (attempt {attempt + 1}): {e}")
-                if attempt < max_retries - 1: time.sleep(2 ** attempt)
+                if attempt < max_retries - 1:
+                    time.sleep(2 ** attempt)
         
         print_error(f"Failed to scrape after {max_retries} attempts")
         return []
@@ -799,7 +1361,8 @@ class VeloraScraper:
     
     def initialize(self) -> bool:
         print_banner()
-        if not self.config.validate(): return False
+        if not self.config.validate():
+            return False
         try:
             self.supabase = create_client(self.config.supabase_url, self.config.supabase_key)
             self.db = DatabaseManager(self.supabase)
@@ -813,7 +1376,7 @@ class VeloraScraper:
         print_header("MARKET INTELLIGENCE BRIEFING")
         print(f"{Colors.OKCYAN}{'-'*80}{Colors.ENDC}")
         print(f"{Colors.BOLD}Target Competitor:{Colors.ENDC} {brief.get('competitor_name')}")
-        print(f"{Colors.BOLD}Tier:{Colors.ENDC} {brief.get('tier_context', 'free').upper()}")
+        print(f"{Colors.BOLD}Tier:{Colors.ENDC} {str(brief.get('tier_context', 'free')).upper()}")
         print(f"{Colors.BOLD}Products Analyzed:{Colors.ENDC} {brief.get('products_with_pricing')} / {brief.get('total_products_scanned')}")
         print()
         
@@ -832,10 +1395,12 @@ class VeloraScraper:
         }
         print_header("STRATEGIC INSIGHTS")
         for i, insight in enumerate(insights, 1):
-            if insight.get('type') not in strategic_types: continue
-            severity_color = Colors.WARNING if insight.get('severity') in ['critical', 'high'] else Colors.OKGREEN
+            if insight.get('type') not in strategic_types:
+                continue
+            severity = str(insight.get('severity', 'medium')).upper()
+            severity_color = Colors.WARNING if severity in ['CRITICAL', 'HIGH'] else Colors.OKGREEN
             print(f"\n{Colors.OKCYAN}{'-'*80}{Colors.ENDC}")
-            print(f"{Colors.BOLD}INSIGHT #{i} [{insight.get('type').upper()}] - Severity: {severity_color}{insight.get('severity').upper()}{Colors.ENDC}")
+            print(f"{Colors.BOLD}INSIGHT #{i} [{str(insight.get('type', 'GENERAL')).upper()}] - Severity: {severity_color}{severity}{Colors.ENDC}")
             print(f"{Colors.BOLD}Title:{Colors.ENDC} {insight.get('title')}")
             print(f"\n{Colors.OKBLUE}Situation Summary:{Colors.ENDC}\n  {insight.get('summary')}")
             print(f"\n{Colors.OKGREEN}Strategic Counter-Move:{Colors.ENDC}\n  {insight.get('ai_recommendation')}")
@@ -896,7 +1461,8 @@ class VeloraScraper:
             insights = intel_engine.generate_all_insights()
             
             brief = intel_engine._analyze_competitor_data()
-            if "error" not in brief: self.display_intelligence_brief(brief, insights)
+            if "error" not in brief:
+                self.display_intelligence_brief(brief, insights)
             
             if insights:
                 self.db.save_insights(insights, competitor_id)
@@ -924,11 +1490,14 @@ class VeloraScraper:
         for i, comp in enumerate(pending, 1):
             print(f"\n[{i}/{len(pending)}]")
             url = comp.get('website') or comp.get('shopify_store')
-            if url: self.scan_competitor(comp, url)
-            if i < len(pending): time.sleep(2)
+            if url:
+                self.scan_competitor(comp, url)
+            if i < len(pending):
+                time.sleep(2)
     
     def run(self, url: str = None, continuous: bool = False, force_all: bool = False):
-        if not self.initialize(): sys.exit(1)
+        if not self.initialize():
+            sys.exit(1)
         
         if continuous:
             print_info(f"[WAIT] Continuous mode: checking every {self.config.scan_interval}s")
@@ -942,14 +1511,18 @@ class VeloraScraper:
                 print_info("\n[STOP] Continuous mode stopped by user")
         elif url:
             comp = self.db.get_or_create_competitor(url)
-            if comp: self.scan_competitor(comp, url)
+            if comp:
+                self.scan_competitor(comp, url)
         elif force_all:
             self.run_dynamic_mode(force_all=True)
         else:
             self.run_dynamic_mode(force_all=False)
 
 def main():
-    parser = argparse.ArgumentParser(description="Velora v3.5.1 - Strict Tier Enforcement & Diagnostics", formatter_class=argparse.RawDescriptionHelpFormatter)
+    parser = argparse.ArgumentParser(
+        description="Velora v3.9.0 - Groq API with Bulletproof Response Parser",
+        formatter_class=argparse.RawDescriptionHelpFormatter
+    )
     parser.add_argument('url', nargs='?', help='Store URL to scan (optional)')
     parser.add_argument('--continuous', '-c', action='store_true', help='Run continuously')
     parser.add_argument('--force-all', '-f', action='store_true', help='Force scan all competitors')
