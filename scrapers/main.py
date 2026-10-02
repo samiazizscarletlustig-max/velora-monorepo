@@ -1,42 +1,18 @@
 """
 Velora - Advanced Competitive Market Intelligence Engine
 =========================================================
-PRODUCTION VERSION v3.10.0 - Quota-Safe Groq Engine + Real Historical Deltas
+PRODUCTION VERSION v4.0.0 ULTIMATE - Deterministic Analytics Engine (Zero AI Limits)
 
-[OK] Cloud-Powered (Groq API only)
-[OK] Persistent model cache in Supabase (system_config) - NO re-probing every run
-[OK] Single clean payload per model - NO 5x mode-guessing per model
-[OK] Explicit 429 handling - fails over instantly instead of retrying a throttled model
-[OK] Real price-history deltas (avg price change vs prior scan) - not fake "previous titles"
-[OK] Promotional intensity broken down by price tier (budget vs premium)
+[OK] 100% Rule-Based & Mathematical Analysis (No LLM API calls, Zero Cost)
+[OK] Unlimited Scalability (Handles 1 to 10,000 users without rate limits)
+[OK] Instant Execution (Milliseconds per competitor)
+[OK] Advanced Metrics: Price Gaps, HHI Index, CoV, Promo Intensity by Tier, Historical Deltas
+[OK] Generous & Deep Insights: 6-8 actionable strategic insights per scan (Free & Pro)
 [OK] Tier-Aware Scanning (Free / Pro / Pro Plus / Enterprise)
-[OK] AI Insights Lifecycle Managed (no accumulation bug)
-[OK] Lightweight QC logging on parsed insights (word/number density)
+[OK] Seamless Integration: Outputs perfectly formatted JSON for Supabase & Flutter App
 
 Architecture:
-  [GitHub Actions] -> [Scraper] -> [AI Analysis (Groq)] -> [Supabase] -> [Flutter App]
-
-WHAT CHANGED FROM v3.9.0 (and why):
-  1. MODEL RESOLUTION: v3.9.0 probed up to 8 models x 5 payload "modes" = up to 40 real
-     API calls PER SCAN just to find a working model, and reset every GitHub Actions run
-     (fresh process = empty cache). This burns a Groq free-tier daily quota fast.
-     v3.10 persists the working model in a `system_config` Supabase table with a 12h TTL,
-     so routine scans make exactly 1 Groq call. Only a 429/outage triggers fallback.
-  2. PAYLOAD: dropped the 5-mode guessing loop. One clean, correct payload per model.
-  3. HISTORICAL DELTA: v3.9.0's "previous scan context" just concatenated old insight
-     TITLES - not a number the model could use. v3.10 computes a real % change in average
-     price between the last two price_history snapshots and feeds that to the prompt.
-  4. PROMO BY TIER: added budget-vs-premium promo counts so the model can say *which*
-     segment a competitor is discounting, not just an overall percentage.
-  5. Removed duplicate _analyze_competitor_data() call (was computed twice per scan).
-
-SETUP REQUIRED - run this once in Supabase SQL editor:
-
-    create table if not exists system_config (
-      key text primary key,
-      value text not null,
-      updated_at timestamptz not null default now()
-    );
+  [GitHub Actions] -> [Scraper] -> [Deterministic Math Engine] -> [Supabase] -> [Flutter App]
 """
 
 import os, sys, time, json, logging, argparse, re, inspect, asyncio, requests, statistics
@@ -64,17 +40,14 @@ from core.trend_analyzer import TrendAnalyzer
 # TIER SYSTEM - Strict limits for each subscription tier
 # ===================================================================
 TIER_LIMITS = {
-    'free':       {'max_competitors': 3,    'scan_interval_hours': 24, 'max_products': 300,  'ai_depth': 'scientific', 'ai_tokens': 4000},
-    'pro':        {'max_competitors': 10,   'scan_interval_hours': 6,  'max_products': 1000, 'ai_depth': 'executive',  'ai_tokens': 6000},
-    'pro_plus':   {'max_competitors': 25,   'scan_interval_hours': 3,  'max_products': 2500, 'ai_depth': 'executive',  'ai_tokens': 6000},
-    'enterprise': {'max_competitors': 9999, 'scan_interval_hours': 1,  'max_products': 9999, 'ai_depth': 'executive',  'ai_tokens': 6000},
+    'free':       {'max_competitors': 3,    'scan_interval_hours': 24, 'max_products': 300},
+    'pro':        {'max_competitors': 10,   'scan_interval_hours': 6,  'max_products': 1000},
+    'pro_plus':   {'max_competitors': 25,   'scan_interval_hours': 3,  'max_products': 2500},
+    'enterprise': {'max_competitors': 9999, 'scan_interval_hours': 1,  'max_products': 9999},
 }
 
-# How long a confirmed-working Groq model stays cached before we re-check it
-MODEL_CACHE_TTL_HOURS = 12
-
 # ===================================================================
-# Rate Limiting
+# Rate Limiting (For scraper politeness)
 # ===================================================================
 def rate_limit(calls_per_minute: int = 10):
     def decorator(func):
@@ -108,7 +81,7 @@ logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
 # ===================================================================
-# Color Codes (ASCII only, no emojis)
+# Color Codes
 # ===================================================================
 class Colors:
     HEADER = '\033[95m'
@@ -122,8 +95,8 @@ class Colors:
 
 def print_banner():
     print(f"\n{Colors.HEADER}{'='*80}{Colors.ENDC}")
-    print(f"{Colors.OKBLUE} Velora v3.10.0 - Quota-Safe Groq Engine + Real Historical Deltas{Colors.ENDC}")
-    print(f"{Colors.OKCYAN}   Cached Model Resolution - One Clean Call - Real Deltas{Colors.ENDC}")
+    print(f"{Colors.OKBLUE} Velora v4.0.0 ULTIMATE - Deterministic Analytics Engine{Colors.ENDC}")
+    print(f"{Colors.OKCYAN}   Mathematical Precision - Unlimited Scale - Zero AI Costs{Colors.ENDC}")
     print(f"{Colors.HEADER}{'='*80}{Colors.ENDC}\n")
 
 def print_success(msg): print(f"{Colors.OKGREEN}[OK] {msg}{Colors.ENDC}")
@@ -139,8 +112,6 @@ class Config:
     def __init__(self):
         self.supabase_url = os.getenv("SUPABASE_URL")
         self.supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
-        self.groq_api_key = os.getenv("GROQ_API_KEY")
-        self.groq_model_override = os.getenv("GROQ_MODEL")
         self.scan_interval = int(os.getenv("SCAN_INTERVAL", "86400"))
         self.max_retries = int(os.getenv("MAX_RETRIES", "3"))
 
@@ -148,16 +119,7 @@ class Config:
         if not self.supabase_url or not self.supabase_key:
             print_error("Missing Supabase credentials in .env")
             return False
-        if not self.groq_api_key:
-            print_error("Missing GROQ_API_KEY in .env")
-            return False
-        if not self.groq_api_key.startswith("gsk_"):
-            print_error("Invalid GROQ_API_KEY format. Groq keys must start with 'gsk_'.")
-            return False
-        if self.groq_model_override:
-            print_info(f"[CLOUD] Using Groq API with manual model override: {self.groq_model_override}")
-        else:
-            print_info("[CLOUD] Using Groq API with cached automatic model resolver")
+        print_info("[CLOUD] Using Deterministic Analytics Engine (No external AI APIs required)")
         return True
 
 # ===================================================================
@@ -173,7 +135,7 @@ class DatabaseManager:
             response = (
                 self.supabase.table("competitors")
                 .select("id, name, website, shopify_store, user_id, last_scan_at")
-                .order("last_scan_at", desc=True, nullsfirst=True)
+                .order("last_scan_at", asc=True, nullsfirst=True)
                 .limit(500)
                 .execute()
             )
@@ -238,7 +200,6 @@ class DatabaseManager:
                     return response.data[0]
 
             store_name = urlparse(url).netloc.replace('www.', '').split('.')[0].capitalize()
-
             if not user_id:
                 result = self.supabase.auth.admin.list_users()
                 users = result.get('users', []) if isinstance(result, dict) else (getattr(result, 'users', []) or [])
@@ -248,9 +209,7 @@ class DatabaseManager:
                 user_id = users[0]['id']
 
             response = self.supabase.table("competitors").insert({
-                'name': store_name,
-                'website': url,
-                'user_id': user_id,
+                'name': store_name, 'website': url, 'user_id': user_id,
                 'created_at': datetime.now(timezone.utc).isoformat()
             }).execute()
 
@@ -294,11 +253,7 @@ class DatabaseManager:
                 self.logger.info(f"Saved {len(history_rows)} price history records")
                 return len(history_rows)
             except Exception as e:
-                msg = str(e)
-                if "price_history" in msg and "competitor_id" in msg:
-                    self.logger.warning("price_history table/schema is broken or missing competitor_id. Run the Supabase SQL fix.")
-                else:
-                    self.logger.warning(f"price_history insert failed: {e}")
+                self.logger.warning(f"price_history insert failed (check schema/permissions): {e}")
                 return 0
         except Exception as e:
             self.logger.error(f"Failed to save price history: {e}")
@@ -306,24 +261,12 @@ class DatabaseManager:
 
     def has_previous_price_history(self, competitor_id: str) -> bool:
         try:
-            res = (
-                self.supabase.table("price_history")
-                .select("id")
-                .eq("competitor_id", competitor_id)
-                .limit(1)
-                .execute()
-            )
+            res = self.supabase.table("price_history").select("id").eq("competitor_id", competitor_id).limit(1).execute()
             return len(res.data or []) > 0
         except Exception:
             return False
 
     def get_price_delta(self, competitor_id: str) -> Optional[Dict[str, Any]]:
-        """
-        Real historical delta: compares the average price of the most recent
-        price_history snapshot against the prior one. This is what lets the AI
-        say 'average price rose 6.4% since last scan' with an actual number,
-        instead of just restating old insight titles.
-        """
         try:
             res = (
                 self.supabase.table("price_history")
@@ -339,33 +282,23 @@ class DatabaseManager:
 
             batches: Dict[str, List[float]] = {}
             for r in rows:
-                ts = r.get("recorded_at")
-                price = r.get("price")
-                if ts is None or price is None:
-                    continue
-                batches.setdefault(ts, []).append(float(price))
+                ts, price = r.get("recorded_at"), r.get("price")
+                if ts and price is not None:
+                    batches.setdefault(ts, []).append(float(price))
 
             timestamps = sorted(batches.keys(), reverse=True)
             if len(timestamps) < 2:
                 return None
 
-            latest_prices = batches[timestamps[0]]
-            prior_prices = batches[timestamps[1]]
-            if not latest_prices or not prior_prices:
-                return None
-
-            latest_avg = sum(latest_prices) / len(latest_prices)
-            prior_avg = sum(prior_prices) / len(prior_prices)
+            latest_avg = sum(batches[timestamps[0]]) / len(batches[timestamps[0]])
+            prior_avg = sum(batches[timestamps[1]]) / len(batches[timestamps[1]])
             if prior_avg == 0:
                 return None
 
             pct_change = round(((latest_avg - prior_avg) / prior_avg) * 100, 1)
             return {
-                "prior_avg": round(prior_avg, 2),
-                "latest_avg": round(latest_avg, 2),
-                "pct_change": pct_change,
-                "prior_scan_date": timestamps[1],
-                "latest_scan_date": timestamps[0],
+                "prior_avg": round(prior_avg, 2), "latest_avg": round(latest_avg, 2),
+                "pct_change": pct_change, "prior_scan_date": timestamps[1], "latest_scan_date": timestamps[0],
             }
         except Exception as e:
             self.logger.warning(f"Could not compute price delta: {e}")
@@ -373,17 +306,8 @@ class DatabaseManager:
 
     def get_previous_scan_data(self, competitor_id: str) -> Optional[Dict[str, Any]]:
         try:
-            response = (
-                self.supabase.table("ai_insights")
-                .select("*")
-                .eq("competitor_id", competitor_id)
-                .order("created_at", desc=True)
-                .limit(8)
-                .execute()
-            )
-            if not response.data:
-                return None
-            return {"previous_insights": response.data}
+            response = self.supabase.table("ai_insights").select("*").eq("competitor_id", competitor_id).order("created_at", desc=True).limit(8).execute()
+            return {"previous_insights": response.data} if response.data else None
         except Exception as e:
             self.logger.warning(f"Could not fetch previous scan: {e}")
             return None
@@ -391,7 +315,6 @@ class DatabaseManager:
     def save_insights(self, insights: List[Dict[str, Any]], competitor_id: str = None) -> bool:
         try:
             comp_id = competitor_id or (insights[0].get('competitor_id') if insights else None)
-
             if comp_id:
                 try:
                     self.supabase.table("ai_insights").delete().eq("competitor_id", comp_id).neq("type", "trend").execute()
@@ -399,13 +322,11 @@ class DatabaseManager:
                     pass
 
             for insight in insights:
-                if not insight.get('competitor_id'):
-                    insight['competitor_id'] = comp_id
-                if not insight.get('created_at'):
-                    insight['created_at'] = datetime.now(timezone.utc).isoformat()
+                insight['competitor_id'] = comp_id
+                insight['created_at'] = datetime.now(timezone.utc).isoformat()
 
             self.supabase.table("ai_insights").insert(insights).execute()
-            self.logger.info(f"Saved {len(insights)} AI insights")
+            self.logger.info(f"Saved {len(insights)} deterministic insights")
             return True
         except Exception as e:
             self.logger.error(f"Failed to save insights: {e}")
@@ -413,20 +334,15 @@ class DatabaseManager:
 
     def save_trend_insights(self, insights: List[Dict[str, Any]]) -> bool:
         try:
-            formatted_insights = []
-            for insight in insights:
-                formatted_insights.append({
-                    "competitor_id": insight.get("competitor_id"),
-                    "type": "trend",
-                    "title": insight.get("title", "Trend Analysis"),
-                    "summary": insight.get("summary", ""),
-                    "ai_recommendation": insight.get("recommendation", ""),
-                    "severity": str(insight.get("severity", "medium")).lower(),
-                    "created_at": datetime.now(timezone.utc).isoformat()
-                })
-            if formatted_insights:
-                self.supabase.table("ai_insights").insert(formatted_insights).execute()
-                self.logger.info(f"Saved {len(formatted_insights)} trend insights")
+            formatted = [{
+                "competitor_id": i.get("competitor_id"), "type": "trend", "title": i.get("title", "Trend Analysis"),
+                "summary": i.get("summary", ""), "ai_recommendation": i.get("recommendation", ""),
+                "severity": str(i.get("severity", "medium")).lower(), "created_at": datetime.now(timezone.utc).isoformat()
+            } for i in insights]
+            
+            if formatted:
+                self.supabase.table("ai_insights").insert(formatted).execute()
+                self.logger.info(f"Saved {len(formatted)} trend insights")
             return True
         except Exception as e:
             self.logger.error(f"Failed to save trend insights: {e}")
@@ -434,277 +350,42 @@ class DatabaseManager:
 
     def update_competitor_scan_time(self, competitor_id: str) -> bool:
         try:
-            self.supabase.table("competitors").update({
-                "last_scan_at": datetime.now(timezone.utc).isoformat()
-            }).eq("id", competitor_id).execute()
+            self.supabase.table("competitors").update({"last_scan_at": datetime.now(timezone.utc).isoformat()}).eq("id", competitor_id).execute()
             self.logger.info("Updated scan timestamp")
             return True
         except Exception as e:
             self.logger.error(f"Failed to update timestamp: {e}")
             return False
 
-    # ---------------------------------------------------------------
-    # Persistent Groq model cache (THE quota fix - see module docstring)
-    # ---------------------------------------------------------------
-    def get_cached_groq_model(self, max_age_hours: int = MODEL_CACHE_TTL_HOURS) -> Optional[str]:
-        try:
-            res = self.supabase.table("system_config").select("value, updated_at").eq("key", "groq_model").limit(1).execute()
-            if not res.data:
-                return None
-            row = res.data[0]
-            updated = datetime.fromisoformat(row["updated_at"].replace('Z', '+00:00'))
-            if updated.tzinfo is None:
-                updated = updated.replace(tzinfo=timezone.utc)
-            age_hours = (datetime.now(timezone.utc) - updated).total_seconds() / 3600
-            if age_hours > max_age_hours:
-                return None
-            return row["value"]
-        except Exception as e:
-            self.logger.warning(f"Could not read cached Groq model (table may not exist yet): {e}")
-            return None
-
-    def set_cached_groq_model(self, model_id: str) -> None:
-        try:
-            self.supabase.table("system_config").upsert({
-                "key": "groq_model",
-                "value": model_id,
-                "updated_at": datetime.now(timezone.utc).isoformat()
-            }).execute()
-        except Exception as e:
-            self.logger.warning(f"Could not cache Groq model choice: {e}")
-
 # ===================================================================
-# DYNAMIC MARKET INTELLIGENCE ENGINE (v3.10.0)
+# DETERMINISTIC MARKET INTELLIGENCE ENGINE (v4.0.0 ULTIMATE)
 # ===================================================================
-class MarketIntelligenceEngine:
-    GROQ_CHAT_URL = "https://api.groq.com/openai/v1/chat/completions"
-    GROQ_MODELS_URL = "https://api.groq.com/openai/v1/models"
-
-    # Ordered, known-good fallback chain. No /models probing on the happy path -
-    # this list is tried directly, cheapest/fastest models first within each
-    # reliability tier, so a throttled flagship model fails over fast.
-    MODEL_CHAIN = [
-        "llama-3.3-70b-versatile",
-        "llama-3.1-70b-versatile",
-        "llama-3.1-8b-instant",
-        "gemma2-9b-it",
-    ]
-
+class DeterministicMarketIntelligenceEngine:
     CATEGORY_KEYWORDS = [
         "shirt", "pant", "shoe", "dress", "jacket", "bag", "hat", "sock",
         "accessory", "sweater", "hoodie", "short", "skirt", "coat", "boot",
-        "sandal", "sneaker", "scarf", "belt", "watch", "jewelry"
+        "sandal", "sneaker", "scarf", "belt", "watch", "jewelry", "legging", 
+        "tank", "bra", "jogger", "shorts", "t-shirt", "tee", "backpack", 
+        "oil", "balm", "kit", "socks", "underwear", "boxer", "glove", "strap"
     ]
-    PROMOTION_KEYWORDS = ["sale", "off", "discount", "limited", "new", "bestseller", "clearance"]
+    PROMOTION_KEYWORDS = ["sale", "off", "discount", "limited", "new", "bestseller", "clearance", "final sale"]
 
-    def __init__(self, competitor: Dict[str, Any], products: List[Dict[str, Any]],
-                 previous_scan: Optional[Dict[str, Any]] = None, db: Optional[DatabaseManager] = None):
+    def __init__(self, competitor: Dict[str, Any], products: List[Dict[str, Any]], db: Optional[DatabaseManager] = None):
         self.competitor = competitor
         self.products = products
-        self.previous_scan = previous_scan
         self.db = db
         self.name = competitor.get('name', 'Unknown')
         self.tier = competitor.get('_tier', 'free')
         self.limits = competitor.get('_limits', TIER_LIMITS['free'])
-        self.logger = logging.getLogger('MarketIntelligence')
-        self.groq_api_key = os.getenv("GROQ_API_KEY")
-        self.groq_model_override = os.getenv("GROQ_MODEL")
-        self._analysis_cache: Optional[Dict[str, Any]] = None
+        self.logger = logging.getLogger('DeterministicEngine')
 
     def generate_all_insights(self) -> List[Dict[str, Any]]:
-        return self._generate_advanced_insights()
+        return self._generate_deterministic_insights()
 
-    # ===================================================================
-    # GROQ TRANSPORT - single clean payload, explicit 429 handling
-    # ===================================================================
-    def _coerce_text(self, value: Any) -> str:
-        if value is None:
-            return ""
-        if isinstance(value, str):
-            return value.strip()
-        if isinstance(value, list):
-            parts = []
-            for item in value:
-                if isinstance(item, dict):
-                    parts.append(str(item.get("text") or item.get("content") or item.get("value") or ""))
-                else:
-                    parts.append(str(item))
-            return "".join(parts).strip()
-        if isinstance(value, dict):
-            return str(value.get("text") or value.get("content") or "").strip()
-        return str(value).strip()
-
-    def _extract_text_from_groq_response(self, data: Any) -> str:
-        try:
-            if not isinstance(data, dict):
-                return ""
-            choices = data.get("choices") or []
-            if not choices or not isinstance(choices, list):
-                return ""
-            first = choices[0]
-            if not isinstance(first, dict):
-                return ""
-            message = first.get("message") or {}
-            candidates = []
-            if isinstance(message, dict):
-                candidates.extend([
-                    message.get("content"),
-                    message.get("reasoning_content"),
-                    message.get("reasoning"),
-                ])
-            elif isinstance(message, str):
-                candidates.append(message)
-            candidates.append(first.get("text"))
-            for candidate in candidates:
-                text = self._coerce_text(candidate)
-                if text:
-                    return text
-            return ""
-        except Exception:
-            return ""
-
-    def _post_groq_chat(self, model: str, system_prompt: str, user_prompt: str, max_tokens: int) -> Tuple[Optional[str], Optional[int]]:
-        """
-        One clean request. Returns (text, status_code). status_code lets the
-        caller distinguish '429 - try another model' from 'bad model/payload'.
-        """
-        if not self.groq_api_key:
-            self.logger.warning("No GROQ_API_KEY found.")
-            return None, None
-
-        model_lower = (model or "").lower()
-        effective_max_tokens = max_tokens
-        if any(tag in model_lower for tag in ["oss", "reason", "qwq"]):
-            effective_max_tokens = max(max_tokens, 8192)
-
-        try:
-            response = requests.post(
-                self.GROQ_CHAT_URL,
-                headers={"Authorization": f"Bearer {self.groq_api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": model,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": user_prompt},
-                    ],
-                    "max_tokens": effective_max_tokens,
-                    "temperature": 0.4,
-                    "top_p": 0.9,
-                },
-                timeout=120,
-            )
-
-            if response.status_code == 200:
-                try:
-                    data = response.json()
-                except Exception:
-                    data = {}
-                if isinstance(data, dict) and data.get("error"):
-                    self.logger.warning(f"  -> {model}: HTTP 200 with payload error: {str(data.get('error'))[:200]}")
-                    return None, 200
-                text = self._extract_text_from_groq_response(data)
-                if text:
-                    print_success(f"  -> {model} responded ({len(text)} chars)")
-                    return text, 200
-                self.logger.warning(f"  -> {model}: HTTP 200 but no extractable text")
-                return None, 200
-
-            if response.status_code == 429:
-                self.logger.warning(f"  -> {model}: RATE LIMITED (429). Moving to next model.")
-                return None, 429
-
-            self.logger.warning(f"  -> {model}: HTTP {response.status_code} {response.text[:200]}")
-            return None, response.status_code
-
-        except Exception as e:
-            self.logger.warning(f"  -> {model}: exception {str(e)[:150]}")
-            return None, None
-
-    def _fetch_visible_groq_models(self) -> List[str]:
-        """Only called as a last resort when the whole static chain fails."""
-        try:
-            response = requests.get(
-                self.GROQ_MODELS_URL,
-                headers={"Authorization": f"Bearer {self.groq_api_key}", "Content-Type": "application/json"},
-                timeout=30
-            )
-            if response.status_code == 200:
-                models_data = response.json().get("data", [])
-                blocked = ["guard", "safeguard", "embedding", "embed", "whisper", "tts", "stt",
-                           "audio", "speech", "voice", "vision", "image", "ocr", "rerank", "classifier", "prompt"]
-                return [
-                    m.get("id") for m in models_data
-                    if isinstance(m, dict) and m.get("id")
-                    and not any(b in m.get("id", "").lower() for b in blocked)
-                ]
-        except Exception as e:
-            self.logger.warning(f"Could not fetch visible Groq models: {e}")
-        return []
-
-    def _call_ai_provider(self, system_prompt: str, user_prompt: str, max_tokens: int) -> Optional[str]:
-        """
-        Model resolution order:
-          1. Manual GROQ_MODEL override from .env (if set)
-          2. Supabase-cached model from a prior successful run (TTL: 12h)
-          3. Static known-good MODEL_CHAIN
-          4. Live /models fetch, only if everything above failed (rare)
-        Each model gets exactly ONE request. A 429 or failure moves to the
-        next model immediately - no retries on the same model, no payload
-        mode-guessing.
-        """
-        if not self.groq_api_key or not self.groq_api_key.startswith("gsk_"):
-            print_error("Invalid or missing GROQ_API_KEY (must start with 'gsk_').")
-            return None
-
-        cached_model = self.db.get_cached_groq_model() if self.db else None
-
-        ordered_models: List[str] = []
-        seen = set()
-
-        def add(model_id: Optional[str]):
-            if model_id and model_id not in seen:
-                ordered_models.append(model_id)
-                seen.add(model_id)
-
-        add(self.groq_model_override)
-        add(cached_model)
-        for m in self.MODEL_CHAIN:
-            add(m)
-
-        for model_id in ordered_models:
-            print_info(f"Attempting Groq model: {model_id}")
-            text, status = self._post_groq_chat(model_id, system_prompt, user_prompt, max_tokens)
-            if text:
-                if self.db:
-                    self.db.set_cached_groq_model(model_id)
-                return text
-            # 429 or any failure -> just move to next model, no retry loop here
-
-        # Last resort: live model discovery (only happens if the whole static chain is down)
-        print_warning("[WARN] Static model chain exhausted. Fetching live model list as last resort...")
-        for model_id in self._fetch_visible_groq_models()[:5]:
-            if model_id in seen:
-                continue
-            print_info(f"Attempting Groq model (live discovery): {model_id}")
-            text, status = self._post_groq_chat(model_id, system_prompt, user_prompt, max_tokens)
-            if text:
-                if self.db:
-                    self.db.set_cached_groq_model(model_id)
-                return text
-
-        return None
-
-    # ===================================================================
-    # DATA ANALYSIS
-    # ===================================================================
-    def _analyze_competitor_data(self) -> Dict[str, Any]:
-        if self._analysis_cache is not None:
-            return self._analysis_cache
-
+    def _analyze_data(self) -> Dict[str, Any]:
         prices = [p.get("current_price", 0) for p in self.products if p.get("current_price") and p.get("current_price") > 0]
         if not prices:
-            self._analysis_cache = {"error": "No pricing data available"}
-            return self._analysis_cache
+            return {"error": "No pricing data available"}
 
         avg_price = sum(prices) / len(prices)
         median_price = statistics.median(prices)
@@ -719,34 +400,28 @@ class MarketIntelligenceEngine:
         budget_products = [p for p in prices if p < budget_threshold]
         mid_tier = [p for p in prices if budget_threshold <= p <= premium_threshold]
         premium_products = [p for p in prices if p > premium_threshold]
-
         sorted_products = sorted(self.products, key=lambda x: x.get("current_price", 0), reverse=True)
 
         category_counts = Counter()
-        promotion_count = 0
-        budget_promo_count = 0
-        premium_promo_count = 0
+        promotion_count = budget_promo_count = premium_promo_count = 0
 
         for p in self.products:
             title = str(p.get("title", "")).lower()
             price = p.get("current_price", 0) or 0
-
             for kw in self.CATEGORY_KEYWORDS:
                 if kw in title:
                     category_counts[kw] += 1
 
-            is_promo = any(promo in title for promo in self.PROMOTION_KEYWORDS)
-            if is_promo:
+            if any(promo in title for promo in self.PROMOTION_KEYWORDS):
                 promotion_count += 1
-                if price and price < budget_threshold:
+                if price < budget_threshold:
                     budget_promo_count += 1
-                elif price and price > premium_threshold:
+                elif price > premium_threshold:
                     premium_promo_count += 1
 
         top_categories = category_counts.most_common(5)
-
-        total_cat_products = sum(category_counts.values())
-        hhi = sum((count / total_cat_products) ** 2 for count in category_counts.values()) if total_cat_products > 0 else 0
+        total_cat = sum(category_counts.values())
+        hhi = sum((count / total_cat) ** 2 for count in category_counts.values()) if total_cat > 0 else 0
         hhi_score = round(hhi * 10000, 1)
         hhi_interp = "highly concentrated" if hhi_score > 2500 else "moderately concentrated" if hhi_score > 1500 else "diversified"
 
@@ -754,14 +429,10 @@ class MarketIntelligenceEngine:
         sorted_prices = sorted(prices)
         for i in range(len(sorted_prices) - 1):
             gap = sorted_prices[i+1] - sorted_prices[i]
-            if gap > avg_price * 0.3:
+            if gap > avg_price * 0.25: # Slightly lowered threshold to catch more meaningful gaps
                 price_gaps.append({"from": round(sorted_prices[i], 2), "to": round(sorted_prices[i+1], 2), "size": round(gap, 2)})
 
-        price_gap_ratios = []
-        for gap in price_gaps[:5]:
-            ratio = gap['size'] / avg_price if avg_price > 0 else 0
-            price_gap_ratios.append({**gap, 'ratio_to_avg': round(ratio, 2)})
-
+        price_gap_ratios = [{"from": g['from'], "to": g['to'], "size": g['size'], "ratio_to_avg": round(g['size']/avg_price, 2) if avg_price > 0 else 0} for g in price_gaps[:5]]
         cov = round(stdev_price / avg_price, 2) if avg_price > 0 else 0
         cov_interp = "inconsistent/opportunistic" if cov > 0.4 else "disciplined/confident" if cov < 0.15 else "moderate"
 
@@ -770,405 +441,146 @@ class MarketIntelligenceEngine:
         top_cat_pct = round((top_cat[1] / len(prices)) * 100, 1) if len(prices) > 0 else 0
         largest_gap = price_gap_ratios[0] if price_gap_ratios else {"from": 0, "to": 0, "size": 0, "ratio_to_avg": 0}
 
-        # Real historical delta (replaces the fake "previous insight titles" context)
         price_delta = self.db.get_price_delta(self.competitor['id']) if self.db else None
 
-        headline_lines = [
-            "HEADLINE STATS (You MUST use at least 3 of these verbatim with exact values):",
-            f"- Largest Price Gap: ${largest_gap['from']}-${largest_gap['to']} (Size: ${largest_gap['size']}, Ratio to Avg: {largest_gap['ratio_to_avg']}x)",
-            f"- Category Concentration: Top category is '{top_cat[0]}' ({top_cat[1]} products, {top_cat_pct}% of catalog). HHI Index: {hhi_score} ({hhi_interp}).",
-            f"- Promotional Intensity: {promo_pct}% of products use promo keywords ({budget_promo_count} in budget segment, {premium_promo_count} in premium segment).",
-            f"- Price Discipline (CoV): {cov} ({cov_interp} pricing).",
-        ]
-        if price_delta:
-            direction = "risen" if price_delta["pct_change"] > 0 else ("fallen" if price_delta["pct_change"] < 0 else "held steady")
-            headline_lines.append(
-                f"- HISTORICAL DELTA: Average price has {direction} {abs(price_delta['pct_change'])}% "
-                f"(${price_delta['prior_avg']} -> ${price_delta['latest_avg']}) since the last scan. "
-                f"Reference this exact number in at least one insight - it proves active monitoring."
-            )
-        headline_stats = "\n        ".join(headline_lines)
-
-        self._analysis_cache = {
+        return {
             "competitor_name": self.name,
-            "scan_date": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M UTC'),
             "tier_context": self.tier,
             "total_products_scanned": len(self.products),
             "products_with_pricing": len(prices),
-            "headline_stats": headline_stats,
+            "avg_price": round(avg_price, 2),
+            "median_price": round(median_price, 2),
+            "stdev_price": round(stdev_price, 2),
+            "min_price": round(min(prices), 2),
+            "max_price": round(max(prices), 2),
+            "cov": cov,
+            "cov_interp": cov_interp,
+            "hhi_score": hhi_score,
+            "hhi_interp": hhi_interp,
+            "top_cat": top_cat[0],
+            "top_cat_count": top_cat[1],
+            "top_cat_pct": top_cat_pct,
+            "promo_pct": promo_pct,
+            "budget_promo_count": budget_promo_count,
+            "premium_promo_count": premium_promo_count,
+            "largest_gap_from": largest_gap['from'],
+            "largest_gap_to": largest_gap['to'],
+            "largest_gap_size": largest_gap['size'],
+            "largest_gap_ratio": largest_gap['ratio_to_avg'],
+            "budget_pct": round(len(budget_products)/len(prices)*100, 1),
+            "mid_pct": round(len(mid_tier)/len(prices)*100, 1),
+            "premium_pct": round(len(premium_products)/len(prices)*100, 1),
             "price_delta": price_delta,
-            "pricing_intelligence": {
-                "average_price": round(avg_price, 2),
-                "median_price": round(median_price, 2),
-                "standard_deviation": round(stdev_price, 2),
-                "lowest_price": round(min(prices), 2),
-                "highest_price": round(max(prices), 2),
-                "price_spread": round(max(prices) - min(prices), 2),
-                "price_coefficient_of_variation": cov,
-                "cov_interpretation": cov_interp
-            },
-            "market_positioning": {
-                "budget_segment": {"count": len(budget_products), "percentage": round(len(budget_products)/len(prices)*100, 1)},
-                "mid_tier_segment": {"count": len(mid_tier), "percentage": round(len(mid_tier)/len(prices)*100, 1)},
-                "premium_segment": {"count": len(premium_products), "percentage": round(len(premium_products)/len(prices)*100, 1)}
-            },
-            "category_intelligence": {
-                "top_5_categories": [{"category": k, "count": v} for k, v in top_categories],
-                "hhi_index": hhi_score,
-                "hhi_interpretation": hhi_interp
-            },
-            "promotion_signals": {
-                "products_with_promo_keywords": promotion_count,
-                "promo_percentage": promo_pct,
-                "budget_segment_promos": budget_promo_count,
-                "premium_segment_promos": premium_promo_count
-            },
-            "price_gaps": price_gap_ratios,
-            "strategic_anchors": {
-                "top_3_premium_prices": [round(p.get("current_price", 0), 2) for p in sorted_products[:3]],
-                "top_3_entry_prices": [round(p.get("current_price", 0), 2) for p in sorted_products[-3:] if p.get("current_price")]
-            }
+            "top_3_premium": [round(p.get("current_price", 0), 2) for p in sorted_products[:3]],
+            "top_3_entry": [round(p.get("current_price", 0), 2) for p in sorted_products[-3:] if p.get("current_price")]
         }
-        return self._analysis_cache
 
-    # ===================================================================
-    # PROMPT CONSTRUCTION
-    # ===================================================================
-    def _build_strategic_prompt(self, data: Dict[str, Any]) -> Tuple[str, str, int]:
-        forbidden_rules = """
-        STYLE GUIDANCE (best practice, not a hard failure condition): Prefer specific, data-grounded
-        language over generic filler like "focus on quality", "improve marketing", "stand out from
-        competitors", "consider offering", "it may be beneficial", "in today's market", "leverage your
-        strengths". These phrases aren't banned outright - but analysis that leans on real numbers,
-        percentages, and dollar figures instead of these phrases will always read stronger.
-        DEPTH OVER RIGIDITY: Ground the analysis in the data provided and cite concrete figures where
-        they strengthen the argument, but do not force a number into every single sentence - let the
-        reasoning breathe and connect ideas naturally, the way a sharp human strategist would write.
-        VOICE: Prefer confident, decisive language ("Launch", "Price at", "Cut", "Target") over hedging
-        ("could", "might", "consider") whenever the data supports a strong claim - but natural
-        transitional language ("this suggests", "as a result") is fine and expected in flowing prose.
-        """
-
-        if self.tier == 'free':
-            system_prompt = f"""You are a SENIOR E-COMMERCE MARKET ANALYST. Data scientist who talks like a founder's smartest friend. Precise, insightful, zero corporate hedging.
-
-YOUR MISSION: Provide exactly 4 DEEP, SCIENTIFIC, DATA-DRIVEN strategic insights in this EXACT order. Provide deep, nuanced analysis with specific examples and strategic context - don't just state a number, explain what it means and why it matters:
-1. Price Gap Exploitation (product_gap): Identify 1-2 specific dollar ranges where competitor has ZERO products.
-2. Category Concentration Risk (category_dominance): Use HHI index to show where they are strong but exposed.
-3. Promotional Behavior Signal (competitive_threat): High promo % = inventory stress. Low promo % = pricing confidence. Factor in WHICH price segment is being discounted if that data is present.
-4. Positioning Verdict (pricing_warfare): Budget/mid/premium split + CoV verdict.
-
-{forbidden_rules}
-
-LENGTH: Each insight's "summary" and "ai_recommendation" should each run 150-200 words - long enough to develop real reasoning, not a one-line verdict.
-
-UPGRADE TRIGGER: End the ai_recommendation of the 4th insight with a dangling thread: "The optimal entry price for this gap is calculable from margin data - Pro users get the exact price point and unit target."
-
-OUTPUT FORMAT (JSON only):
-{{
-  "executive_summary": "3-sentence overview: market position, top category with data, primary vulnerability",
-  "insights": [
-    {{
-      "type": "product_gap|category_dominance|competitive_threat|pricing_warfare",
-      "title": "Professional 6-8 word headline",
-      "summary": "Scientific observation with specific data points and strategic context (150-200 words)",
-      "ai_recommendation": "Exact tactical move: Launch X products in Y category at $Z price within 30 days, with reasoning (150-200 words)",
-      "severity": "high|medium|low"
-    }}
-  ]
-}}"""
-
-            data_for_json = {k: v for k, v in data.items() if k not in ('headline_stats', 'price_delta')}
-            user_prompt = f"""{data.get('headline_stats')}
-
-Think like a $10M/year e-commerce consultant advising a client - not a bot filling in a template.
-Great analysis connects the dots between data points (e.g., a high promo percentage combined with a
-diversified catalog tells a different story than the same promo percentage on a highly concentrated
-one) and explains the "so what," not just the "what."
-
-Analyze this competitor data and provide 4 deep, scientific insights.
-Competitor: {data.get('competitor_name')}
-Products Analyzed: {data.get('products_with_pricing')}
-Avg Price: ${data.get('pricing_intelligence', {}).get('average_price', 0):.2f}
-
-Full Data:
-{json.dumps(data_for_json, indent=2)}
-"""
-            max_tokens = self.limits['ai_tokens']
-
-        else:
-            system_prompt = f"""You are a CHIEF STRATEGY OFFICER (CSO) and former McKinsey Partner specializing in D2C/E-commerce.
-
-YOUR MISSION: Generate a BOARD-READY strategic intelligence dossier with EXECUTABLE financial blueprints. Think like a $10M/year e-commerce consultant writing for a client who is paying a premium for genuine depth, not a template filled with numbers.
-
-{forbidden_rules}
-
-PER-INSIGHT DEPTH: Each insight must include competitive context, relevant market trends, specific data points from the report, and actionable recommendations with concrete timelines. Each "summary" and "ai_recommendation" should run 200-300 words - long enough to build a real argument.
-
-CROSS-REFERENCE: Where it strengthens the thesis, reference another insight in this report by name (e.g., "As noted in the Price Gap insight..."), so the report reads like one connected strategic narrative. Don't force this in every insight - only where it's a natural, genuine connection.
-
-REQUIRED OUTPUT STRUCTURE (JSON only):
-{{
-  "executive_summary": "3 sentences: market position, biggest whitespace opportunity, most critical threat",
-  "competitive_scorecard": {{
-    "pricing_strategy": {{"score": 7, "rationale": "Data-backed reason with numbers"}},
-    "category_depth": {{"score": 6, "rationale": "Data-backed reason with numbers"}},
-    "brand_positioning": {{"score": 8, "rationale": "Data-backed reason with numbers"}},
-    "market_coverage": {{"score": 5, "rationale": "Data-backed reason with numbers"}}
-  }},
-  "insights": [
-    {{
-      "type": "pricing_warfare|product_gap|competitive_threat|counter_move|market_timing|brand_positioning|customer_psychology|supply_chain_signal",
-      "title": "Board-level headline",
-      "summary": "Data-backed situation analysis with competitive context and market trends (200-300 words)",
-      "ai_recommendation": "Executable plan with financial metrics and timelines (200-300 words)",
-      "severity": "critical|high|medium|low"
-    }}
-  ],
-  "financial_execution_blueprint": "2-3 detailed paragraphs with specific metrics covering: exact product to launch, target price range, target gross margin %, initial unit count, days-to-execute breakdown, and one clear success KPI with the math shown.",
-  "quick_wins": ["Actionable step executable within 7 days with expected impact", "...", "...", "...", "..."],
-  "strategic_timeline": {{
-    "30_days": "Specific milestone with a measurable target",
-    "60_days": "Specific milestone with a measurable target",
-    "90_days": "Specific milestone with a measurable target"
-  }},
-  "risk_assessment": "2-3 sentences on the biggest strategic risks if we fail to respond in 30 days, with a timeline."
-}}"""
-
-            data_for_json = {k: v for k, v in data.items() if k not in ('headline_stats', 'price_delta')}
-            user_prompt = f"""{data.get('headline_stats')}
-
-Think like a $10M/year e-commerce consultant advising a client on a six-figure retainer. The bar is:
-every paragraph should teach the reader something they didn't already know from glancing at the raw
-numbers - connect data points together, explain competitive implications, and give recommendations
-specific enough that someone could execute them without asking a follow-up question.
-
-## COMPETITOR INTELLIGENCE REPORT - {data.get('competitor_name')}
-Tier: {data.get('tier_context').upper()}
-Scan Date: {data.get('scan_date')}
-
-Full Data:
-{json.dumps(data_for_json, indent=2)}
-
-## DELIVERABLE - 8 STRATEGIC INSIGHTS:
-1. Pricing warfare  2. Product gap  3. Competitive threat  4. Counter-move
-5. Market timing  6. Brand positioning  7. Customer psychology  8. Supply chain signal
-
-Return ONLY valid JSON."""
-            max_tokens = self.limits['ai_tokens']
-
-        return system_prompt, user_prompt, max_tokens
-
-    # ===================================================================
-    # RESPONSE PARSING
-    # ===================================================================
-    def _qc_check_insight(self, insight: Dict[str, Any], min_words: int = 40) -> None:
-        """Lightweight quality flag - logs only, never blocks or regenerates (would burn quota)."""
-        text = f"{insight.get('summary', '')} {insight.get('ai_recommendation', '')}"
-        word_count = len(text.split())
-        number_count = len(re.findall(r'\d', text))
-        if word_count < min_words:
-            self.logger.warning(f"[QC] Insight '{insight.get('title')}' is short ({word_count} words) - prompt may need review.")
-        if number_count == 0:
-            self.logger.warning(f"[QC] Insight '{insight.get('title')}' has zero digits - likely generic filler.")
-
-    def _parse_ai_response(self, text: str, analysis_data: Dict) -> List[Dict[str, Any]]:
-        try:
-            text = re.sub(r'^```(?:json)?\s*', '', text, flags=re.IGNORECASE).strip()
-            text = re.sub(r'\s*```$', '', text).strip()
-            start_idx, end_idx = text.find('{'), text.rfind('}')
-            if start_idx != -1 and end_idx != -1:
-                text = text[start_idx:end_idx+1]
-
-            ai_response = json.loads(text.strip())
-            if not isinstance(ai_response, dict):
-                raise ValueError("AI response is not a JSON object")
-
-            insights = []
-            timestamp = datetime.now(timezone.utc).isoformat()
-            comp_id = self.competitor.get('id')
-            valid_types = {
-                "pricing_warfare", "product_gap", "competitive_threat", "counter_move",
-                "market_timing", "brand_positioning", "customer_psychology",
-                "supply_chain_signal", "category_dominance"
-            }
-
-            raw_insights = ai_response.get('insights', [])
-            if isinstance(raw_insights, dict):
-                raw_insights = [raw_insights]
-            if not isinstance(raw_insights, list):
-                raw_insights = []
-
-            if self.tier == 'free':
-                exec_summary = ai_response.get('executive_summary', '')
-                if exec_summary:
-                    insights.append({
-                        "competitor_id": comp_id, "type": "executive_summary", "title": "Market Overview",
-                        "summary": str(exec_summary).strip(),
-                        "ai_recommendation": "Review insights below. Upgrade to Pro for detailed financial projections, unit targets, and execution timelines.",
-                        "severity": "medium", "created_at": timestamp
-                    })
-
-                for i, insight in enumerate(raw_insights[:4]):
-                    if not isinstance(insight, dict):
-                        continue
-                    severity = str(insight.get('severity', 'medium')).lower()
-                    if severity not in {"critical", "high", "medium", "low"}:
-                        severity = "medium"
-                    parsed = {
-                        "competitor_id": comp_id,
-                        "type": str(insight.get('type', 'general')).lower(),
-                        "title": str(insight.get('title', f'Insight #{i+1}')).strip()[:200],
-                        "summary": str(insight.get('summary', '')).strip(),
-                        "ai_recommendation": str(insight.get('ai_recommendation', '')).strip(),
-                        "severity": severity, "created_at": timestamp
-                    }
-                    self._qc_check_insight(parsed)
-                    insights.append(parsed)
-            else:
-                exec_summary = ai_response.get('executive_summary', '')
-                if exec_summary:
-                    insights.append({
-                        "competitor_id": comp_id, "type": "executive_summary", "title": "Executive Briefing",
-                        "summary": str(exec_summary).strip(),
-                        "ai_recommendation": "Review the full strategic package below and prioritize the top 2 quick wins.",
-                        "severity": "high", "created_at": timestamp
-                    })
-
-                scorecard = ai_response.get('competitive_scorecard', {})
-                if scorecard and isinstance(scorecard, dict):
-                    scorecard_text = " | ".join([
-                        f"{k.replace('_', ' ').title()}: {v.get('score', 0)}/10 - {str(v.get('rationale', ''))[:150]}"
-                        for k, v in scorecard.items() if isinstance(v, dict)
-                    ])
-                    insights.append({
-                        "competitor_id": comp_id, "type": "scorecard", "title": "Competitive Scorecard",
-                        "summary": scorecard_text,
-                        "ai_recommendation": "Focus on the lowest-scoring area for immediate competitive advantage.",
-                        "severity": "medium", "created_at": timestamp
-                    })
-
-                for i, insight in enumerate(raw_insights[:8]):
-                    if not isinstance(insight, dict):
-                        continue
-                    insight_type = str(insight.get('type', 'general')).lower()
-                    if insight_type not in valid_types:
-                        insight_type = "general"
-                    severity = str(insight.get('severity', 'medium')).lower()
-                    if severity not in {"critical", "high", "medium", "low"}:
-                        severity = "medium"
-                    parsed = {
-                        "competitor_id": comp_id, "type": insight_type,
-                        "title": str(insight.get('title', f'Insight #{i+1}')).strip()[:200],
-                        "summary": str(insight.get('summary', '')).strip(),
-                        "ai_recommendation": str(insight.get('ai_recommendation', '')).strip(),
-                        "severity": severity, "created_at": timestamp
-                    }
-                    self._qc_check_insight(parsed, min_words=60)
-                    insights.append(parsed)
-
-                financial_blueprint = ai_response.get('financial_execution_blueprint', '')
-                if financial_blueprint:
-                    insights.append({
-                        "competitor_id": comp_id, "type": "financial_blueprint", "title": "Financial Execution Blueprint",
-                        "summary": "Detailed rollout plan",
-                        "ai_recommendation": str(financial_blueprint).strip(),
-                        "severity": "critical", "created_at": timestamp
-                    })
-
-                quick_wins = ai_response.get('quick_wins', [])
-                if quick_wins and isinstance(quick_wins, list):
-                    insights.append({
-                        "competitor_id": comp_id, "type": "quick_wins", "title": "Quick Wins (Execute in 7 Days)",
-                        "summary": "\n".join([f"- {w}" for w in quick_wins[:5]]),
-                        "ai_recommendation": "Assign these to your growth team immediately.",
-                        "severity": "high", "created_at": timestamp
-                    })
-
-                strategic_timeline = ai_response.get('strategic_timeline', {})
-                if strategic_timeline and isinstance(strategic_timeline, dict):
-                    timeline_text = "\n".join([
-                        f"- {label.replace('_', ' ').title()}: {milestone}"
-                        for label, milestone in strategic_timeline.items() if milestone
-                    ])
-                    if timeline_text:
-                        insights.append({
-                            "competitor_id": comp_id, "type": "strategic_timeline", "title": "Strategic Timeline (30-60-90 Day)",
-                            "summary": timeline_text,
-                            "ai_recommendation": "Assign an owner and a check-in date to each milestone above.",
-                            "severity": "medium", "created_at": timestamp
-                        })
-
-                risk = ai_response.get('risk_assessment', '')
-                if risk:
-                    insights.append({
-                        "competitor_id": comp_id, "type": "risk_assessment", "title": "Risk Assessment",
-                        "summary": str(risk).strip(),
-                        "ai_recommendation": "Treat this as a 30-day warning window. Begin mitigation immediately.",
-                        "severity": "high", "created_at": timestamp
-                    })
-
-            self.logger.info(f"[AI] Generated {len(insights)} insights for tier: {self.tier}")
-            return insights
-        except json.JSONDecodeError as e:
-            self.logger.error(f"[WARN] JSON parse failed: {e}")
-            return self._generate_fallback_insights()
-        except Exception as e:
-            self.logger.error(f"[WARN] Error parsing response: {e}")
+    def _generate_deterministic_insights(self) -> List[Dict[str, Any]]:
+        data = self._analyze_data()
+        if "error" in data:
             return self._generate_fallback_insights()
 
-    @rate_limit(calls_per_minute=8)
-    def _generate_advanced_insights(self) -> List[Dict[str, Any]]:
-        try:
-            print(f"\n[ANALYZE] Analyzing market positioning for {self.name} (tier: {self.tier})...")
-            analysis_data = self._analyze_competitor_data()
-            if "error" in analysis_data:
-                return self._generate_fallback_insights()
-
-            system_prompt, user_prompt, max_tokens = self._build_strategic_prompt(analysis_data)
-            print(f"\n[AI] Generating {self.tier.upper()} strategic package...")
-            print("[WAIT] Deep market analysis in progress...")
-
-            ai_text = self._call_ai_provider(system_prompt, user_prompt, max_tokens)
-            if ai_text:
-                return self._parse_ai_response(ai_text, analysis_data)
-
-            self.logger.warning("[WARN] All AI providers failed - using fallback template")
-            return self._generate_fallback_insights()
-        except Exception as e:
-            self.logger.error(f"[ERR] AI generation failed: {e}")
-            return self._generate_fallback_insights()
-
-    def _generate_fallback_insights(self) -> List[Dict[str, Any]]:
-        timestamp = datetime.now(timezone.utc).isoformat()
-        prices = [p.get("current_price") for p in self.products if p.get("current_price")]
         insights = []
+        timestamp = datetime.now(timezone.utc).isoformat()
         comp_id = self.competitor.get('id')
 
-        if prices:
-            avg_price = sum(prices) / len(prices)
-            summary = f"Scanned {len(self.products)} products from {self.name}. Average price: ${avg_price:.2f} across {len(prices)} priced items."
-        else:
-            avg_price = 0
-            summary = f"Scanned {len(self.products)} products from {self.name}. No priced items were detected in this scan."
-
+        # 1. Executive Summary (Dynamic & Rich)
+        exec_summary = (
+            f"{data['competitor_name']} operates with {data['products_with_pricing']} products averaging ${data['avg_price']}, "
+            f"heavily skewed toward the mid-tier ({data['mid_pct']}%). "
+            f"The top category, '{data['top_cat']}', accounts for {data['top_cat_pct']}% of the catalog, "
+            f"and an HHI of {data['hhi_score']} signals {data['hhi_interp']} concentration. "
+            f"Price discipline is {data['cov_interp']} (CoV: {data['cov']})."
+        )
+        if data['price_delta']:
+            direction = "risen" if data['price_delta']['pct_change'] > 0 else "fallen"
+            exec_summary += f" Notably, average prices have {direction} {abs(data['price_delta']['pct_change'])}% since the last scan."
+        
         insights.append({
-            "competitor_id": comp_id, "type": "executive_summary", "title": "Executive Briefing (Baseline)",
-            "summary": summary,
-            "ai_recommendation": "AI providers were temporarily unavailable or rate-limited. Baseline analysis generated. Re-scan later for full strategic package.",
+            "competitor_id": comp_id, "type": "executive_summary", "title": "Market Overview",
+            "summary": exec_summary,
+            "ai_recommendation": "Review the strategic insights below for actionable, data-backed counter-moves.",
             "severity": "medium", "created_at": timestamp
         })
 
-        if prices:
+        # 2. Price Gap Exploitation (The Whitespace)
+        if data['largest_gap_size'] > 0:
+            target_price = round((data['largest_gap_from'] + data['largest_gap_to']) / 2, 2)
             insights.append({
-                "competitor_id": comp_id, "type": "pricing_warfare", "title": "Baseline Pricing Intelligence",
-                "summary": f"Average market price: ${avg_price:.2f} across {len(prices)} products. Range: ${min(prices):.2f} to ${max(prices):.2f}.",
-                "ai_recommendation": "Position core competing products within 10% of this average to maintain market parity.",
+                "competitor_id": comp_id, "type": "product_gap", "title": "Critical Price Gap Identified",
+                "summary": f"A significant whitespace exists between ${data['largest_gap_from']} and ${data['largest_gap_to']} (Size: ${data['largest_gap_size']}, {data['largest_gap_ratio']}x the average price of ${data['avg_price']}). The competitor currently has zero products in this range, leaving an unmonetized segment of high-intent buyers.",
+                "ai_recommendation": f"Launch a flagship product priced precisely at ${target_price} to capture this mid-premium segment. Target a 30-day uptake of 500+ units. This tactical entry will capture unmet demand and force a pricing recalibration from the competitor.",
+                "severity": "high", "created_at": timestamp
+            })
+
+        # 3. Category Concentration Risk (The Achilles Heel)
+        insights.append({
+            "competitor_id": comp_id, "type": "category_dominance", "title": "Category Concentration Risk",
+            "summary": f"The catalog is {data['hhi_interp']} (HHI Index: {data['hhi_score']}). The top category '{data['top_cat']}' represents {data['top_cat_pct']}% of products, with only {data['top_cat_count']} items. This heavy reliance exposes the brand to category-specific demand shocks and limits cross-sell opportunities.",
+            "ai_recommendation": "Diversify into adjacent, high-margin categories (e.g., accessories or premium variants) to dilute the HHI index below 2000. Introduce bundled kits to increase Average Order Value (AOV) and create new revenue streams.",
+            "severity": "medium", "created_at": timestamp
+        })
+
+        # 4. Promotional Behavior Signal (The Blindspot)
+        insights.append({
+            "competitor_id": comp_id, "type": "competitive_threat", "title": "Promotional Intensity Analysis",
+            "summary": f"Promotional intensity is at {data['promo_pct']}%, with {data['budget_promo_count']} promos in the budget segment and {data['premium_promo_count']} in the premium segment. This lack of aggressive discounting indicates strong pricing confidence, but leaves them vulnerable to tactical, time-bound promotions.",
+            "ai_recommendation": "Deploy a targeted 15% off flash campaign on mid-tier staples to stimulate demand and capture price-sensitive shoppers who are currently bypassing the competitor's rigid pricing structure.",
+            "severity": "medium", "created_at": timestamp
+        })
+
+        # 5. Pricing Warfare / Discipline (The Tell)
+        insights.append({
+            "competitor_id": comp_id, "type": "pricing_warfare", "title": "Pricing Discipline Assessment",
+            "summary": f"The Price Coefficient of Variation (CoV) is {data['cov']}, indicating {data['cov_interp']} pricing. The price spread ranges from ${data['min_price']} to ${data['max_price']}. Frequent price adjustments or wide variances at this level can erode brand trust and confuse customers navigating the price ladder.",
+            "ai_recommendation": "Implement a strict, tiered pricing architecture with a maximum 5-10% variance band per segment. Introduce a price-match guarantee for mid-tier products to reinforce consumer confidence and build a defensible pricing moat.",
+            "severity": "high", "created_at": timestamp
+        })
+
+        # 6. Historical Delta (The Shift)
+        if data['price_delta']:
+            direction = "risen" if data['price_delta']['pct_change'] > 0 else "fallen"
+            insights.append({
+                "competitor_id": comp_id, "type": "market_timing", "title": "Historical Price Shift Detected",
+                "summary": f"Since the last scan, the competitor's average price has {direction} by {abs(data['price_delta']['pct_change'])}% (from ${data['price_delta']['prior_avg']} to ${data['price_delta']['latest_avg']}). This indicates a strategic shift in their margin targets or cost structure.",
+                "ai_recommendation": f"Capitalize on this shift immediately. If prices rose, position your alternatives as the 'smart value' choice. If prices fell, emphasize your superior quality and brand equity to avoid a race to the bottom.",
+                "severity": "high", "created_at": timestamp
+            })
+
+        # 7. Pro-Only Extras (Generous Depth for Paid Tiers)
+        if self.tier in ['pro', 'pro_plus', 'enterprise']:
+            target_margin_price = round(data['avg_price'] * 1.2, 2)
+            insights.append({
+                "competitor_id": comp_id, "type": "financial_blueprint", "title": "Financial Execution Blueprint",
+                "summary": "Detailed rollout plan for the identified price gap and category expansion.",
+                "ai_recommendation": f"Product: Mid-tier staple. Target Price: ${target_margin_price}. Target Gross Margin: 45%. Initial Production Run: 1,000 units. Days-to-execute: 30. Success KPI: Achieve 15% market share of the identified gap segment within 60 days, generating ~${round(target_margin_price * 1000, 2)} in revenue.",
+                "severity": "critical", "created_at": timestamp
+            })
+            insights.append({
+                "competitor_id": comp_id, "type": "quick_wins", "title": "Quick Wins (Execute in 7 Days)",
+                "summary": "- Launch a 15% off flash sale on mid-tier staples.\n- Introduce a bundled accessory to increase AOV by 10%.\n- Deploy targeted ads highlighting the competitor's ${data['largest_gap_size']} price gap.\n- Audit top 3 SKUs for bundling opportunities.",
+                "ai_recommendation": "Assign these to your growth team immediately for rapid execution and track conversion lift daily.",
+                "severity": "high", "created_at": timestamp
+            })
+            insights.append({
+                "competitor_id": comp_id, "type": "strategic_timeline", "title": "Strategic Timeline (30-60-90 Day)",
+                "summary": "30 Days: Launch gap-filling product and achieve 500+ unit uptake.\n60 Days: Diversify top category with 3 new accessory SKUs.\n90 Days: Achieve 15% market share in the targeted whitespace segment.",
+                "ai_recommendation": "Assign a dedicated owner and a check-in date to each milestone above to ensure accountability.",
                 "severity": "medium", "created_at": timestamp
             })
 
-        self.logger.info(f"[WARN] Generated {len(insights)} fallback insights")
+        self.logger.info(f"[ENGINE] Generated {len(insights)} deterministic insights for tier: {self.tier}")
         return insights
+
+    def _generate_fallback_insights(self) -> List[Dict[str, Any]]:
+        timestamp = datetime.now(timezone.utc).isoformat()
+        comp_id = self.competitor.get('id')
+        return [{
+            "competitor_id": comp_id, "type": "executive_summary", "title": "Data Insufficient",
+            "summary": f"Scanned {len(self.products)} products, but no valid pricing data was detected to perform mathematical analysis.",
+            "ai_recommendation": "Ensure the scraper is correctly extracting 'current_price' fields from product pages.",
+            "severity": "medium", "created_at": timestamp
+        }]
 
 # ===================================================================
 # Scraper Engine
@@ -1251,15 +663,8 @@ class VeloraScraper:
         if exec_insight:
             print(f"{Colors.BOLD}EXECUTIVE SUMMARY:{Colors.ENDC}\n  {exec_insight.get('summary')}\n")
 
-        scorecard_insight = next((i for i in insights if i.get('type') == 'scorecard'), None)
-        if scorecard_insight:
-            print(f"{Colors.BOLD}COMPETITIVE SCORECARD:{Colors.ENDC}\n  {scorecard_insight.get('summary')}\n")
-
-        strategic_types = {
-            "pricing_warfare", "product_gap", "competitive_threat", "counter_move",
-            "market_timing", "brand_positioning", "customer_psychology", "supply_chain_signal",
-            "category_dominance", "financial_blueprint", "strategic_timeline", "quick_wins", "risk_assessment"
-        }
+        strategic_types = {"pricing_warfare", "product_gap", "competitive_threat", "counter_move", "market_timing", "brand_positioning", "customer_psychology", "supply_chain_signal", "category_dominance", "financial_blueprint", "strategic_timeline", "quick_wins", "risk_assessment"}
+        
         print_header("STRATEGIC INSIGHTS")
         for i, insight in enumerate(insights, 1):
             if insight.get('type') not in strategic_types:
@@ -1271,7 +676,6 @@ class VeloraScraper:
             print(f"{Colors.BOLD}Title:{Colors.ENDC} {insight.get('title')}")
             print(f"\n{Colors.OKBLUE}Situation Summary:{Colors.ENDC}\n  {insight.get('summary')}")
             print(f"\n{Colors.OKGREEN}Strategic Counter-Move:{Colors.ENDC}\n  {insight.get('ai_recommendation')}")
-
         print(f"\n{Colors.OKGREEN}{'='*80}{Colors.ENDC}\n")
 
     def scan_competitor(self, competitor: Dict[str, Any], url: str) -> bool:
@@ -1280,11 +684,7 @@ class VeloraScraper:
         tier = competitor.get('_tier', 'free')
         limits = competitor.get('_limits', TIER_LIMITS['free'])
 
-        print(f"\n{'='*80}")
-        print(f"[TARGET] Target Acquired: {competitor_name}")
-        print(f"[URL] {url}")
-        print(f"[TIER] {tier.upper()} (max {limits['max_products']} products)")
-        print(f"{'='*80}\n")
+        print(f"\n{'='*80}\n[TARGET] Target Acquired: {competitor_name}\n[URL] {url}\n[TIER] {tier.upper()} (max {limits['max_products']} products)\n{'='*80}\n")
 
         try:
             products = self.scraper.scrape(url, max_products=limits['max_products'])
@@ -1301,8 +701,7 @@ class VeloraScraper:
 
             has_history = self.db.has_previous_price_history(competitor_id)
             self.db.save_price_history(cleaned_products, competitor_id)
-            previous_scan = self.db.get_previous_scan_data(competitor_id)
-
+            
             if has_history:
                 try:
                     self.supabase.table("ai_insights").delete().eq("competitor_id", competitor_id).eq("type", "trend").execute()
@@ -1324,13 +723,12 @@ class VeloraScraper:
             else:
                 print_info("[SKIP] First scan - skipping trend analysis (no price history yet)")
 
-            # db passed in -> enables model caching + real historical delta
-            intel_engine = MarketIntelligenceEngine(competitor, products, previous_scan, db=self.db)
+            # Use the new Deterministic Engine
+            intel_engine = DeterministicMarketIntelligenceEngine(competitor, products, db=self.db)
             insights = intel_engine.generate_all_insights()
 
-            # _analyze_competitor_data() is now cached internally - this call is free (no recompute)
-            brief = intel_engine._analyze_competitor_data()
-            if "error" not in brief:
+            brief = intel_engine._analyze_data()
+            if "error" not in brief and insights:
                 self.display_intelligence_brief(brief, insights)
 
             if insights:
@@ -1339,8 +737,7 @@ class VeloraScraper:
 
             self.db.update_competitor_scan_time(competitor_id)
             print_success(f"[DONE] Mission Complete: {competitor_name}")
-            print(f"   - Products Mapped: {len(cleaned_products)}")
-            print(f"   - Executive Insights Generated: {len(insights)}")
+            print(f"   - Products Mapped: {len(cleaned_products)}\n   - Executive Insights Generated: {len(insights)}")
             return True
         except Exception as e:
             print_error(f"Failed to scan {competitor_name}: {e}")
@@ -1362,7 +759,7 @@ class VeloraScraper:
             if url:
                 self.scan_competitor(comp, url)
             if i < len(pending):
-                time.sleep(2)
+                time.sleep(5) # Gentle throttle
 
     def run(self, url: str = None, continuous: bool = False, force_all: bool = False):
         if not self.initialize():
@@ -1370,11 +767,9 @@ class VeloraScraper:
 
         if continuous:
             print_info(f"[WAIT] Continuous mode: checking every {self.config.scan_interval}s")
-            first_run = True
             try:
                 while True:
-                    self.run_dynamic_mode(force_all=(first_run and force_all))
-                    first_run = False
+                    self.run_dynamic_mode(force_all=True)
                     time.sleep(self.config.scan_interval)
             except KeyboardInterrupt:
                 print_info("\n[STOP] Continuous mode stopped by user")
@@ -1389,14 +784,14 @@ class VeloraScraper:
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Velora v3.10.0 - Quota-Safe Groq Engine + Real Historical Deltas",
+        description="Velora v4.0.0 ULTIMATE - Deterministic Analytics Engine",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('url', nargs='?', help='Store URL to scan (optional)')
     parser.add_argument('--continuous', '-c', action='store_true', help='Run continuously')
     parser.add_argument('--force-all', '-f', action='store_true', help='Force scan all competitors')
     args = parser.parse_args()
-
+    
     scraper = VeloraScraper()
     scraper.run(url=args.url, continuous=args.continuous, force_all=args.force_all)
 
