@@ -135,7 +135,7 @@ class DatabaseManager:
             response = (
                 self.supabase.table("competitors")
                 .select("id, name, website, shopify_store, user_id, last_scan_at")
-                .order("last_scan_at", asc=True, nullsfirst=True)
+                .order("last_scan_at", desc=False, nullsfirst=True) # FIXED: desc=False instead of asc=True
                 .limit(500)
                 .execute()
             )
@@ -429,7 +429,7 @@ class DeterministicMarketIntelligenceEngine:
         sorted_prices = sorted(prices)
         for i in range(len(sorted_prices) - 1):
             gap = sorted_prices[i+1] - sorted_prices[i]
-            if gap > avg_price * 0.25: # Slightly lowered threshold to catch more meaningful gaps
+            if gap > avg_price * 0.25:
                 price_gaps.append({"from": round(sorted_prices[i], 2), "to": round(sorted_prices[i+1], 2), "size": round(gap, 2)})
 
         price_gap_ratios = [{"from": g['from'], "to": g['to'], "size": g['size'], "ratio_to_avg": round(g['size']/avg_price, 2) if avg_price > 0 else 0} for g in price_gaps[:5]]
