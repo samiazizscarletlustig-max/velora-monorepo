@@ -12,26 +12,26 @@ dependencies:
   flutter_localizations:
     sdk: flutter
   cupertino_icons: ^1.0.6
-  
+
   # State Management
   flutter_riverpod: ^2.5.1
-  
+
   # Navigation
   go_router: ^13.2.0
-  
+
   # Localization
   easy_localization: ^3.0.7
-  
+
   # Backend
   supabase_flutter: ^2.5.0
-  
+
   # UI & Design System
   google_fonts: ^6.2.1
-  fl_chart: ^0.68.0
+  fl_chart: ^0.68.0            # ✅ يرسم لوحة Market Visualizations (chart_bundle)
   flutter_markdown: ^0.7.3
   flutter_animate: ^4.5.0
   shimmer: ^3.0.0
-  
+
   # Utils
   intl: ^0.19.0
   shared_preferences: ^2.2.3
@@ -46,6 +46,6 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-  
+
   assets:
     - assets/translations/
