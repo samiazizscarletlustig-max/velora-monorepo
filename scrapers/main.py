@@ -1,18 +1,14 @@
 """
 Velora - Advanced Competitive Market Intelligence Engine
 =========================================================
-PRODUCTION VERSION v4.4.2 - Merged: Best of Both Worlds
+PRODUCTION VERSION v4.5.0 - Deep Analysis + Chart Data Bundle
 
-[OK] URL normalization (protocol, www, query, fragment, trailing slash stripped)
-[OK] Title + URL cross-check for stockout detection
-[OK] 40% plausibility guard against mass false-positive stockouts
-[OK] price_delta_phrase: "remained essentially flat" for <0.5% changes
-[OK] Free-tier Stockout Teaser for upgrade conversion
-[OK] DYNAMIC Quick Wins / Timeline / Blueprint / Cross-Reference that
-     adapt to whether a real price gap exists (fixes "$0 gap" bug)
-[OK] "Dense Price Coverage - No Gap To Fill" insight when gap is absent
-[OK] 13+ Pro insights, 7 Free insights, graceful 403 handling,
-     chunked writes, zero silent failures
+[OK] Everything from v4.4.2 (dynamic insights, stockout guard, URL normalization,
+     honest wording, adaptive cross-reference, tier gating, graceful 403, chunked writes)
+[OK] NEW: Price Architecture & Psychological Pricing Deep Dive (longer, richer analysis)
+[OK] NEW: chart_bundle insight - structured JSON for Flutter charts
+     (price distribution, segments donut, category avg-price, signals, price history)
+[OK] 100% deterministic - zero AI cost, unlimited scale
 
 Architecture:
   [GitHub Actions] -> [Scraper] -> [Deterministic Math Engine] -> [Supabase] -> [Flutter App]
@@ -137,8 +133,8 @@ class Colors:
 
 def print_banner() -> None:
     print(f"\n{Colors.HEADER}{'='*80}{Colors.ENDC}")
-    print(f"{Colors.OKBLUE} Velora v4.4.2 - Merged: Stockout Logic + Dynamic Insights{Colors.ENDC}")
-    print(f"{Colors.OKCYAN}   Normalized URLs | Honest Wording | Adaptive Recommendations{Colors.ENDC}")
+    print(f"{Colors.OKBLUE} Velora v4.5.0 - Deep Analysis + Chart Data Bundle{Colors.ENDC}")
+    print(f"{Colors.OKCYAN}   Price Architecture Deep Dive | Chart Bundle | Adaptive Insights{Colors.ENDC}")
     print(f"{Colors.HEADER}{'='*80}{Colors.ENDC}\n")
 
 
@@ -161,7 +157,6 @@ def normalize_text(text: Optional[str]) -> str:
 
 
 def normalize_product_url(url: Optional[str]) -> str:
-    """Strips protocol, www, query string, fragment, and trailing slash."""
     if not url:
         return ""
     u = url.strip().lower()
@@ -177,7 +172,6 @@ def _chunked(items: List[Any], size: int) -> List[List[Any]]:
 
 
 def price_delta_phrase(pct_change: float) -> str:
-    """Honest wording: below threshold = 'remained essentially flat'."""
     if abs(pct_change) < PRICE_STABLE_THRESHOLD_PCT:
         return "remained essentially flat"
     direction = "risen" if pct_change > 0 else "fallen"
@@ -505,6 +499,75 @@ class PremiumDeterministicMarketIntelligenceEngine:
             return shown[0]
         return f"{shown[0]} and {shown[1]}"
 
+    # -----------------------------------------------------------------
+    # NEW (v4.5.0): Psychological pricing share
+    # -----------------------------------------------------------------
+    def _psychological_pricing_pct(self) -> float:
+        prices = [p.get("current_price", 0) for p in self.products if p.get("current_price") and p.get("current_price") > 0]
+        if not prices:
+            return 0.0
+        endings = (0.99, 0.95, 0.97, 0.49, 0.90, 0.88)
+        hit = sum(1 for p in prices if round(p - int(p), 2) in endings)
+        return round(hit / len(prices) * 100, 1)
+
+    # -----------------------------------------------------------------
+    # NEW (v4.5.0): Chart data bundle for Flutter
+    # -----------------------------------------------------------------
+    def _build_chart_data(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        prices = [p.get("current_price", 0) for p in self.products if p.get("current_price") and p.get("current_price") > 0]
+
+        # 1) Price distribution histogram (6 buckets)
+        hist: List[Dict[str, Any]] = []
+        if prices:
+            lo, hi = min(prices), max(prices)
+            buckets = 6
+            if hi > lo:
+                step = (hi - lo) / buckets
+                edges = [lo + step * i for i in range(buckets + 1)]
+                counts = [0] * buckets
+                for pr in prices:
+                    counts[min(int((pr - lo) / step), buckets - 1)] += 1
+                hist = [{"range": f"${round(edges[i])}-${round(edges[i+1])}", "count": counts[i]} for i in range(buckets)]
+            else:
+                hist = [{"range": f"${round(lo)}", "count": len(prices)}]
+
+        # 2) Top categories with avg price
+        cat_stats: Dict[str, List[float]] = {}
+        for p in self.products:
+            t = normalize_text(str(p.get("title", "")))
+            pr = p.get("current_price", 0) or 0
+            for kw in self.CATEGORY_KEYWORDS:
+                if kw in t:
+                    cat_stats.setdefault(kw, []).append(pr)
+        cats = []
+        for k, v in sorted(cat_stats.items(), key=lambda x: -len(x[1]))[:5]:
+            pp = [x for x in v if x > 0]
+            cats.append({"name": k, "count": len(v), "avg_price": round(sum(pp) / len(pp), 2) if pp else 0})
+
+        # 3) Avg price over time (line chart)
+        history: List[Dict[str, Any]] = []
+        if self.db:
+            try:
+                res = self.db.supabase.table("price_history").select("price, recorded_at").eq("competitor_id", self.competitor['id']).order("recorded_at", desc=False).limit(5000).execute()
+                batches: Dict[str, List[float]] = {}
+                for r in (res.data or []):
+                    if r.get("price") is not None:
+                        batches.setdefault(r.get("recorded_at"), []).append(float(r.get("price")))
+                for ts in sorted(batches):
+                    vals = batches[ts]
+                    history.append({"date": ts[:10], "avg": round(sum(vals) / len(vals), 2)})
+            except Exception:
+                history = []
+
+        return {
+            "price_distribution": hist,
+            "segments": {"budget": data['budget_pct'], "mid": data['mid_pct'], "premium": data['premium_pct']},
+            "categories": cats,
+            "price_history": history[-12:],
+            "signals": {"velocity": data['velocity_pct'], "scarcity": data['scarcity_pct'], "freshness": data['freshness_pct'], "promo": data['promo_pct']},
+            "headlines": {"avg": data['avg_price'], "median": data['median_price'], "hhi": data['hhi_score'], "cov": data['cov'], "vulnerability": data['vulnerability_score']},
+        }
+
     def _analyze_data(self) -> Dict[str, Any]:
         prices = [p.get("current_price", 0) for p in self.products if p.get("current_price") and p.get("current_price") > 0]
         if not prices:
@@ -653,9 +716,6 @@ class PremiumDeterministicMarketIntelligenceEngine:
             "vulnerability_score": vulnerability_score,
         }
 
-    # ===================================================================
-    # DYNAMIC Cross-Reference (4 templates, adapts to gap presence + HHI)
-    # ===================================================================
     def _cross_reference_text(self, data: Dict[str, Any]) -> Tuple[str, str]:
         hhi = data['hhi_score']
         top_pct = data['top_cat_pct']
@@ -725,16 +785,13 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 )
         return summary, recommendation
 
-    # ===================================================================
-    # DYNAMIC Quick Wins (built from real data, not templates)
-    # ===================================================================
     def _build_quick_wins(self, data: Dict[str, Any]) -> List[str]:
         wins: List[str] = []
         mid_anchor = data['median_price']
         if data['promo_pct'] < 5:
             wins.append(
                 f"Run a 48-hour flash sale at ~${round(mid_anchor * 0.85, 2)} (15% under their ${mid_anchor} median) "
-                "to capture the price-sensitive shoppers their 0-promo strategy ignores."
+                "to capture the price-sensitive shoppers their near-zero-promo strategy ignores."
             )
         if data['largest_gap_size'] > 0:
             wins.append(
@@ -764,9 +821,6 @@ class PremiumDeterministicMarketIntelligenceEngine:
             wins.append("Audit top 3 SKUs for bundling and cross-sell opportunities.")
         return wins[:4]
 
-    # ===================================================================
-    # DYNAMIC Timeline (adapted to gap presence)
-    # ===================================================================
     def _build_timeline(self, data: Dict[str, Any]) -> str:
         if data['largest_gap_size'] > 0:
             d30 = (f"30 Days: Launch the ${round((data['largest_gap_from'] + data['largest_gap_to']) / 2, 2)} "
@@ -810,7 +864,6 @@ class PremiumDeterministicMarketIntelligenceEngine:
             "severity": "high" if data['vulnerability_score'] > 70 else "medium", "created_at": timestamp
         })
 
-        # Free-tier stockout teaser (inserted before slicing)
         if self.disappeared_products and self.tier == 'free':
             ordered_core.append({
                 "competitor_id": comp_id, "type": "stockout_signal_teaser", "title": "Stockout Signal Detected",
@@ -822,7 +875,6 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 "severity": "medium", "created_at": timestamp
             })
 
-        # GAP or NO-GAP insight (ADAPTIVE)
         if data['largest_gap_size'] > 0:
             target_price = round((data['largest_gap_from'] + data['largest_gap_to']) / 2, 2)
             lower_title = self._title_near_price(data['largest_gap_from'])
@@ -899,7 +951,6 @@ class PremiumDeterministicMarketIntelligenceEngine:
             "severity": "high" if data['cov'] > 0.4 else "medium", "created_at": timestamp
         })
 
-        # Only generate Historical Price Shift when movement is real (>= 0.5%)
         if data['price_delta'] and abs(data['price_delta']['pct_change']) >= PRICE_STABLE_THRESHOLD_PCT:
             ordered_core.append({
                 "competitor_id": comp_id, "type": "market_timing", "title": "Historical Price Shift Detected",
@@ -960,13 +1011,37 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 "severity": "medium", "created_at": timestamp
             })
 
-        # Tier split
+        # --- NEW (v4.5.0): Price Architecture & Psychological Pricing Deep Dive ---
+        psych = self._psychological_pricing_pct()
+        premium_anchor = data['top_3_premium'][0] if data['top_3_premium'] else 0
+        entry_anchor = data['top_3_entry'][0] if data['top_3_entry'] else 0
+        spread = round(data['max_price'] - data['min_price'], 2)
+        ordered_core.append({
+            "competitor_id": comp_id, "type": "price_architecture", "title": "Price Architecture & Psychological Pricing Deep Dive",
+            "summary": (
+                f"{data['competitor_name']}'s price ladder spans ${data['min_price']} to ${data['max_price']} (a ${spread} spread, "
+                f"{round(spread / data['avg_price'], 1) if data['avg_price'] else 0}x the ${data['avg_price']} average), anchored at the top near ${premium_anchor} "
+                f"and at the entry near ${entry_anchor}. {psych}% of prices end in .99/.95/.49 - a "
+                f"{'heavy' if psych > 60 else 'moderate' if psych > 30 else 'light'} use of charm pricing that signals a "
+                f"{'value-oriented, conversion-focused' if psych > 60 else 'premium, brand-led' if psych < 30 else 'balanced'} positioning. "
+                f"With a ${data['median_price']} median sitting {'above' if data['median_price'] > data['avg_price'] else 'below'} the ${data['avg_price']} mean, "
+                f"the {'mean is pulled up by a few premium outliers, so real volume sits lower than the average suggests' if data['avg_price'] > data['median_price'] else 'distribution skews toward higher prices, so the average understates the typical buy'} - "
+                f"this tells you where their volume lives versus where their margin lives."
+            ),
+            "ai_recommendation": (
+                f"Mirror their charm-pricing intensity so you never read expensive on comparison pages: if {psych}% of their prices end in .99, "
+                f"price your competing SKUs at .95 or .97. Place your hero product just below their ${data['median_price']} median to win the "
+                f"'cheaper than typical' perception, while keeping premium headroom above their ${entry_anchor} entry anchor."
+            ),
+            "severity": "medium", "created_at": timestamp
+        })
+
+        # --- Tier split ---
         if self.tier == 'free':
-            insights.extend(ordered_core[:7])  # 7 insights for Free
+            insights.extend(ordered_core[:7])
         else:
             insights.extend(ordered_core)
 
-            # Full stockout insight (Pro-only)
             if self.disappeared_products:
                 shown = self.disappeared_products[:3]
                 titles_prices = "; ".join(
@@ -1013,7 +1088,6 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 "created_at": timestamp
             })
 
-            # ADAPTIVE Financial Blueprint
             anchor_line = data['top_cat_samples'][0] if data['top_cat_samples'] else f"the {data['top_cat']} line"
             if data['largest_gap_size'] > 0:
                 bp_price = round((data['largest_gap_from'] + data['largest_gap_to']) / 2, 2)
@@ -1040,7 +1114,6 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 "severity": "critical", "created_at": timestamp
             })
 
-            # DYNAMIC Quick Wins
             quick_wins = self._build_quick_wins(data)
             insights.append({
                 "competitor_id": comp_id, "type": "quick_wins", "title": "Quick Wins (Execute in 7 Days)",
@@ -1049,7 +1122,6 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 "severity": "high", "created_at": timestamp
             })
 
-            # DYNAMIC Timeline
             insights.append({
                 "competitor_id": comp_id, "type": "strategic_timeline", "title": "Strategic Timeline (30-60-90 Day)",
                 "summary": self._build_timeline(data),
@@ -1057,7 +1129,6 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 "severity": "medium", "created_at": timestamp
             })
 
-            # DYNAMIC Cross-Reference
             cross_summary, cross_rec = self._cross_reference_text(data)
             insights.append({
                 "competitor_id": comp_id, "type": "cross_reference", "title": "Cross-Reference Strategic Analysis",
@@ -1066,7 +1137,15 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 "severity": "high", "created_at": timestamp
             })
 
-        # Executive Dashboard with HONEST opportunity number
+        # --- NEW (v4.5.0): Chart bundle (both tiers) ---
+        insights.append({
+            "competitor_id": comp_id, "type": "chart_bundle", "title": "Market Visualizations",
+            "summary": json.dumps(self._build_chart_data(data)),
+            "ai_recommendation": "Render as interactive charts.",
+            "severity": "low", "created_at": timestamp
+        })
+
+        # --- Executive Dashboard ---
         critical_high_count = sum(1 for i in insights if i.get('severity') in ('critical', 'high'))
         if data['largest_gap_size'] > 0:
             estimated_opportunity = round(data['largest_gap_size'] * 500, 2)
@@ -1256,7 +1335,8 @@ class VeloraScraper:
             "pricing_warfare", "product_gap", "competitive_threat", "counter_move", "market_timing",
             "brand_positioning", "customer_psychology", "supply_chain_signal", "category_dominance",
             "financial_blueprint", "strategic_timeline", "quick_wins", "risk_assessment",
-            "vulnerability_analysis", "cross_reference", "out_of_stock_signal", "stockout_signal_teaser"
+            "vulnerability_analysis", "cross_reference", "out_of_stock_signal", "stockout_signal_teaser",
+            "price_architecture"
         }
 
         print_header("STRATEGIC INSIGHTS")
@@ -1298,7 +1378,6 @@ class VeloraScraper:
             timestamp = datetime.now(timezone.utc).isoformat()
             cleaned_products = [self.scraper.clean_product_data(p, competitor_id, timestamp) for p in products]
 
-            # Normalized URL + title cross-check + plausibility guard
             disappeared_products: List[Dict[str, Any]] = []
             if previous_products:
                 current_urls = {normalize_product_url(p.get('product_url')) for p in cleaned_products}
@@ -1428,7 +1507,7 @@ class VeloraScraper:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Velora v4.4.2 - Merged: Stockout Logic + Dynamic Insights",
+        description="Velora v4.5.0 - Deep Analysis + Chart Data Bundle",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('url', nargs='?', help='Store URL to scan (optional)')
