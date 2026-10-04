@@ -922,48 +922,57 @@ class _ListHeader extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 📝 INSIGHTS LIST — ⭐ MODIFIED for chart_bundle
+// 📝 INSIGHTS LIST — ⭐ FIXED: bulletproof chart_bundle detection
 // ═══════════════════════════════════════════════════════════
 class _InsightsList extends StatelessWidget {
   final List<AIInsight> insights;
   const _InsightsList({required this.insights});
+
+  /// Detects a chart_bundle insight WITHOUT relying on the model exposing
+  /// a `type` field (which was the bug). Instead we try to decode the
+  /// summary as JSON and look for the chart payload key. Regular text
+  /// insights are not valid JSON, so they safely fall through to the card.
+  Map<String, dynamic>? _chartDataFor(AIInsight insight) {
+    try {
+      final decoded = jsonDecode(insight.summary);
+      if (decoded is Map<String, dynamic> &&
+          decoded.containsKey('price_distribution')) {
+        return decoded;
+      }
+    } catch (_) {
+      // Not JSON -> regular text insight.
+    }
+    return null;
+  }
 
   @override
   Widget build(BuildContext context) {
     return Column(
       children: insights.asMap().entries.map((entry) {
         final insight = entry.value;
+        final chartData = _chartDataFor(insight);
 
-        // ⭐ KEY INTEGRATION: Detect chart_bundle and render the visualizations panel
-        // The Python engine stores chart data as JSON in the summary field
-        // with type='chart_bundle'. We intercept this before building a regular card.
-        final type = (insight as dynamic).type as String? ?? '';
-        if (type == 'chart_bundle') {
-          try {
-            final chartData = jsonDecode(insight.summary as String) as Map<String, dynamic>;
-            return Padding(
-              padding: const EdgeInsets.only(bottom: 12),
-              child: MarketVisualizationsPanel(data: chartData)
-                  .animate()
-                  .fadeIn(
-                    duration: 500.ms,
-                    delay: Duration(milliseconds: 80 * entry.key),
-                  )
-                  .slideX(
-                    begin: -0.05,
-                    end: 0,
-                    duration: 600.ms,
-                    delay: Duration(milliseconds: 80 * entry.key),
-                  ),
-            );
-          } catch (_) {
-            return const SizedBox.shrink();
-          }
+        if (chartData != null) {
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 12),
+            child: MarketVisualizationsPanel(data: chartData)
+                .animate()
+                .fadeIn(
+                  duration: 500.ms,
+                  delay: Duration(milliseconds: 80 * entry.key),
+                )
+                .slideX(
+                  begin: -0.05,
+                  end: 0,
+                  duration: 600.ms,
+                  delay: Duration(milliseconds: 80 * entry.key),
+                ),
+          );
         }
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 12),
-          child: _PremiumInsightCard(insight: entry.value)
+          child: _PremiumInsightCard(insight: insight)
               .animate()
               .fadeIn(
                 duration: 500.ms,
