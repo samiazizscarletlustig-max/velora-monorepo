@@ -922,26 +922,43 @@ class _ListHeader extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 📝 INSIGHTS LIST — ⭐ FIXED: bulletproof chart_bundle detection
+// 📝 INSIGHTS LIST — ⭐ ULTRA-ROBUST chart_bundle detection
 // ═══════════════════════════════════════════════════════════
 class _InsightsList extends StatelessWidget {
   final List<AIInsight> insights;
   const _InsightsList({required this.insights});
 
-  /// Detects a chart_bundle insight WITHOUT relying on the model exposing
-  /// a `type` field (which was the bug). Instead we try to decode the
-  /// summary as JSON and look for the chart payload key. Regular text
-  /// insights are not valid JSON, so they safely fall through to the card.
+  /// Ultra-robust detection of the chart_bundle insight.
+  ///
+  /// Layers (any one succeeding renders the charts panel):
+  ///  1. Quick guard: summary must look like a JSON object (starts with '{').
+  ///  2. Decode and accept ANY Map runtime type (`is Map`), then cast via
+  ///     Map<String,dynamic>.from(...) — avoids any Map<dynamic,dynamic>
+  ///     vs Map<String,dynamic> pitfalls.
+  ///  3. Fallback: match by the known title "Market Visualizations".
   Map<String, dynamic>? _chartDataFor(AIInsight insight) {
-    try {
-      final decoded = jsonDecode(insight.summary);
-      if (decoded is Map<String, dynamic> &&
-          decoded.containsKey('price_distribution')) {
-        return decoded;
+    final raw = insight.summary.trim();
+
+    // Layer 1+2: JSON payload signature.
+    if (raw.startsWith('{')) {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map && decoded.containsKey('price_distribution')) {
+          return Map<String, dynamic>.from(decoded);
+        }
+      } catch (_) {
+        // fall through to title fallback
       }
-    } catch (_) {
-      // Not JSON -> regular text insight.
     }
+
+    // Layer 3: title fallback (in case summary ever changes shape).
+    if (insight.title.trim().toLowerCase() == 'market visualizations') {
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is Map) return Map<String, dynamic>.from(decoded);
+      } catch (_) {}
+    }
+
     return null;
   }
 
