@@ -192,7 +192,7 @@ class _ChartPainter extends CustomPainter {
     // Draw series
     List<Offset> allPoints = [];
     List<ChartDataPoint> allDataPoints = [];
-    
+
     for (var s in series) {
       if (s.data.isEmpty) continue;
 
@@ -208,14 +208,14 @@ class _ChartPainter extends CustomPainter {
       for (var p in s.data) {
         final xNorm = (p.x - minX) / (maxX - minX);
         final yNorm = (p.y - minY) / (maxY - minY);
-        
-        final xPos = isRtl 
+
+        final xPos = isRtl
             ? size.width - padding - (xNorm * graphWidth)
             : padding + (xNorm * graphWidth);
-            
+
         // Apply entrance animation progress to Y
         final yPos = padding + graphHeight - (yNorm * graphHeight * progress);
-        
+
         points.add(Offset(xPos, yPos));
         allPoints.add(Offset(xPos, yPos));
         allDataPoints.add(p);
@@ -223,13 +223,13 @@ class _ChartPainter extends CustomPainter {
 
       if (points.isNotEmpty) {
         path.moveTo(points.first.dx, points.first.dy);
-        
+
         // Draw smooth bezier curves
         for (int i = 0; i < points.length - 1; i++) {
           final p0 = points[i];
           final p1 = points[i + 1];
           final controlPointX = p0.dx + (p1.dx - p0.dx) / 2;
-          
+
           path.cubicTo(
             controlPointX, p0.dy,
             controlPointX, p1.dy,
@@ -265,7 +265,7 @@ class _ChartPainter extends CustomPainter {
       // Find closest point
       double minDistance = double.infinity;
       int closestIndex = -1;
-      
+
       for (int i = 0; i < allPoints.length; i++) {
         final dx = (allPoints[i].dx - mousePosition!.dx).abs();
         if (dx < minDistance) {
@@ -278,7 +278,7 @@ class _ChartPainter extends CustomPainter {
         final point = allPoints[closestIndex];
         final dataPoint = allDataPoints[closestIndex];
 
-        // Draw vertical indicator line (no PathDashEffect built-in for plain flutter CustomPaint without external plugins for dashed lines, so we draw a solid line with opacity)
+        // Draw vertical indicator line
         canvas.drawLine(
           Offset(point.dx, padding),
           Offset(point.dx, padding + graphHeight),
@@ -297,7 +297,7 @@ class _ChartPainter extends CustomPainter {
         canvas.drawCircle(
           point,
           4,
-          Paint()..color = theme.colorScheme.primary, // Could match series color
+          Paint()..color = theme.colorScheme.primary,
         );
 
         // Draw tooltip
@@ -345,21 +345,24 @@ class _ChartPainter extends CustomPainter {
 
         final shiftedRect = tooltipBgRect.shift(Offset(shiftX, 0));
 
+        // ✅ FIX: Correct canvas.drawShadow signature:
+        // void drawShadow(Path path, Color color, double elevation, bool transparentOccluder)
+        canvas.drawShadow(
+          Path()..addRRect(shiftedRect),
+          Colors.black.withOpacity(0.2),
+          8.0,
+          false,
+        );
+
         // Draw tooltip background
         canvas.drawRRect(
           shiftedRect,
           Paint()
             ..color = theme.colorScheme.surface
-            ..style = PaintingStyle.fill
-            ..shadows = [
-              Shadow(
-                color: Colors.black.withOpacity(0.2),
-                blurRadius: 8,
-                offset: const Offset(0, 4),
-              )
-            ],
+            ..style = PaintingStyle.fill,
         );
-        
+
+        // Draw tooltip border
         canvas.drawRRect(
           shiftedRect,
           Paint()
@@ -381,7 +384,7 @@ class _ChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _ChartPainter oldDelegate) {
-    return oldDelegate.mousePosition != mousePosition || 
+    return oldDelegate.mousePosition != mousePosition ||
            oldDelegate.progress != progress ||
            oldDelegate.series != series ||
            oldDelegate.isRtl != isRtl;

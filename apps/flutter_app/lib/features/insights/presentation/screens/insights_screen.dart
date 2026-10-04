@@ -1,5 +1,6 @@
 import 'dart:async';
-import 'dart:math' as math;  
+import 'dart:convert';
+import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_animate/flutter_animate.dart';
@@ -10,8 +11,9 @@ import 'package:google_fonts/google_fonts.dart';
 import '../../../../core/config/app_colors.dart';
 import '../../../../core/widgets/premium_widgets.dart';
 import '../../../../core/extensions/widget_extensions.dart';
+import '../../../../shared/widgets/market_visualizations_panel.dart';
 import '../providers/insights_providers.dart';
-import '../../data/insights_repository.dart'; // ✅ تم إصلاح الخطأ المطبعي هنا
+import '../../data/insights_repository.dart';
 
 // ═══════════════════════════════════════════════════════════
 // 💡 INSIGHTS SCREEN — AI PREMIUM EDITION
@@ -32,7 +34,7 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
   @override
   void initState() {
     super.initState();
-    
+
     _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
       if (mounted) {
         ref.invalidate(insightsListProvider);
@@ -272,7 +274,7 @@ class _HeroHeader extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🔍 PREMIUM SEARCH BAR (✅ تم الإصلاح والمحاذاة المثالية)
+// 🔍 PREMIUM SEARCH BAR
 // ══════════════════════════════════════════════════════════
 class _PremiumSearchBar extends StatefulWidget {
   final TextEditingController controller;
@@ -305,7 +307,7 @@ class _PremiumSearchBarState extends State<_PremiumSearchBar> {
       onFocusChange: (f) => setState(() => _focused = f),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
-        height: 56, // ✅ تم زيادة الارتفاع قليلاً لمحاذاة عمودية مثالية
+        height: 56,
         decoration: BoxDecoration(
           color: isDark ? AppColors.darkSurface : AppColors.lightSurface,
           borderRadius: BorderRadius.circular(16),
@@ -328,7 +330,6 @@ class _PremiumSearchBarState extends State<_PremiumSearchBar> {
         child: Row(
           children: [
             const SizedBox(width: 16),
-            // ✅ تم إزالة AnimatedSwitcher غير الضروري الذي كان يسبب وميضاً
             Icon(
               Icons.search_rounded,
               color: _focused
@@ -355,7 +356,7 @@ class _PremiumSearchBarState extends State<_PremiumSearchBar> {
                     fontSize: 15,
                   ),
                   isDense: true,
-                  contentPadding: const EdgeInsets.symmetric(vertical: 16), // ✅ هذا هو سر المحاذاة المثالية
+                  contentPadding: const EdgeInsets.symmetric(vertical: 16),
                 ),
               ),
             ),
@@ -921,7 +922,7 @@ class _ListHeader extends StatelessWidget {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 📝 INSIGHTS LIST
+// 📝 INSIGHTS LIST — ⭐ MODIFIED for chart_bundle
 // ═══════════════════════════════════════════════════════════
 class _InsightsList extends StatelessWidget {
   final List<AIInsight> insights;
@@ -931,6 +932,35 @@ class _InsightsList extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: insights.asMap().entries.map((entry) {
+        final insight = entry.value;
+
+        // ⭐ KEY INTEGRATION: Detect chart_bundle and render the visualizations panel
+        // The Python engine stores chart data as JSON in the summary field
+        // with type='chart_bundle'. We intercept this before building a regular card.
+        final type = (insight as dynamic).type as String? ?? '';
+        if (type == 'chart_bundle') {
+          try {
+            final chartData = jsonDecode(insight.summary as String) as Map<String, dynamic>;
+            return Padding(
+              padding: const EdgeInsets.only(bottom: 12),
+              child: MarketVisualizationsPanel(data: chartData)
+                  .animate()
+                  .fadeIn(
+                    duration: 500.ms,
+                    delay: Duration(milliseconds: 80 * entry.key),
+                  )
+                  .slideX(
+                    begin: -0.05,
+                    end: 0,
+                    duration: 600.ms,
+                    delay: Duration(milliseconds: 80 * entry.key),
+                  ),
+            );
+          } catch (_) {
+            return const SizedBox.shrink();
+          }
+        }
+
         return Padding(
           padding: const EdgeInsets.only(bottom: 12),
           child: _PremiumInsightCard(insight: entry.value)
@@ -969,7 +999,7 @@ class _PremiumInsightCardState extends State<_PremiumInsightCard> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final severityColor = _getSeverityColor(widget.insight.severity);
-    
+
     final typeIcon = _getTypeIcon(widget.insight.severity);
     final aiRec = (widget.insight as dynamic).aiRecommendation as String? ?? '';
 
@@ -1274,7 +1304,7 @@ class _PremiumInsightCardState extends State<_PremiumInsightCard> {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 📝 FORMATTED TEXT WIDGET (Handles bullet points) - FIXED
+// 📝 FORMATTED TEXT WIDGET (Handles bullet points)
 // ═══════════════════════════════════════════════════════════
 class _FormattedText extends StatelessWidget {
   final String text;
@@ -1290,7 +1320,7 @@ class _FormattedText extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final lines = text.split('\n');
-    
+
     if (lines.length == 1) {
       return Text(text, style: style, maxLines: maxLines);
     }
@@ -1299,11 +1329,11 @@ class _FormattedText extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: lines.asMap().entries.map((entry) {
         final index = entry.key;
-        
+
         if (maxLines != null && index >= maxLines!) {
           return const SizedBox.shrink();
         }
-        
+
         final line = entry.value.trim();
         final int? safeMaxLines = maxLines != null ? maxLines! - index : null;
 
