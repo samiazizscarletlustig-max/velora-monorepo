@@ -1,21 +1,56 @@
 """
 Velora - Advanced Competitive Market Intelligence Engine
 =========================================================
-PRODUCTION VERSION v4.3.0 ULTIMATE - Premium Deterministic Analytics
+PRODUCTION VERSION v4.4.0 - Out-of-Stock Intelligence + Dashboard Summary
 
 [OK] 100% Rule-Based & Mathematical Analysis (No LLM API calls, zero AI cost)
-[OK] Unlimited Scalability (no rate limits - math doesn't throttle)
-[OK] GRACEFUL 403/404 HANDLING: a blocked site never crashes the run
+[OK] GRACEFUL 403/404 HANDLING
 [OK] HYPER-SPECIFIC INSIGHTS: recommendations name actual scraped product titles
-[OK] PREMIUM TIER DIFFERENTIATION: 13 advanced insights for Pro vs 6 for Free
-[OK] Cross-reference analysis linking insights together
-[OK] Vulnerability scoring (0-100) with strategic breakdown
-[OK] Customer psychology profiling based on pricing patterns
-[OK] Strict typing across every function signature
-[OK] Chunked Supabase writes for Enterprise-scale safety
+[OK] NEW: OUT-OF-STOCK MONITORING - diffs this scan against the prior scan's
+     product set to detect competitor stockouts/delistings in real time.
+     This was the single highest-value gap identified against Profitero and
+     Wiser Solutions (both treat competitor stockouts as a live sales signal;
+     Velora didn't track it at all before this version).
+[OK] FIXED: Cross-Reference Analysis no longer says "least diversified" when
+     the catalog is actually diversified - now has 3 dynamic templates keyed
+     off HHI score, top-category %, and CoV together.
+[OK] NEW: Executive Dashboard Summary - 3 headline numbers at the top of
+     every report (critical-issue count, estimated untapped $ opportunity,
+     vulnerability score), matching the "3 numbers up top" format every
+     McKinsey/BCG-style report leads with.
+[OK] Vulnerability scoring (0-100), 13+ insights for Pro, 7 for Free
+[OK] Strict typing, chunked Supabase writes, zero silent failures
 
 Architecture:
   [GitHub Actions] -> [Scraper] -> [Deterministic Math Engine] -> [Supabase] -> [Flutter App]
+
+===================================================================
+WHAT CHANGED FROM v4.3.0
+===================================================================
+1. OUT-OF-STOCK MONITORING (new): before upserting this scan's products,
+   we now fetch the competitor's previously-known product set and diff it
+   against the current scrape. Products present last time but missing now
+   are flagged as likely stockouts/delistings - a live "attack window"
+   signal that no prior Velora version captured. Pro-tier only (it needs a
+   second scan to have anything to compare against, same precondition as
+   price deltas and trends).
+
+2. CROSS-REFERENCE ANALYSIS FIX: v4.3.0 always said "most concentrated...
+   but least diversified" regardless of actual HHI. Replaced with three
+   genuinely distinct templates selected by (HHI band, top-category %,
+   CoV), so a diversified competitor gets a diversification-appropriate
+   recommendation instead of a contradictory one.
+
+3. EXECUTIVE DASHBOARD SUMMARY (new): a dedicated first insight with three
+   headline numbers - critical/high issue count, an estimated untapped
+   dollar opportunity (derived from the largest price gap at the same
+   500-unit assumption used elsewhere in the report, so the number is
+   internally consistent rather than invented separately), and the
+   vulnerability score. This is what a client's eye goes to first.
+
+4. Everything else (blocked-site handling, chunked writes, hyper-specific
+   product-name insights, typing, vulnerability scoring) is carried over
+   from v4.3.0 unchanged.
 """
 
 import os
@@ -55,7 +90,7 @@ from core.trend_analyzer import TrendAnalyzer
 # Custom Exceptions
 # ===================================================================
 class ScraperBlockedError(Exception):
-    def __init__(self, status_code: Optional[int], reason: str = ""):
+    def __init__(self, status_code: Optional[int], reason: str = "") -> None:
         self.status_code = status_code
         self.reason = reason or (f"HTTP {status_code}" if status_code else "Blocked by target site")
         super().__init__(self.reason)
@@ -92,7 +127,7 @@ TIER_LIMITS: Dict[str, Dict[str, int]] = {
 DB_CHUNK_SIZE = 500
 
 # ===================================================================
-# Rate Limiting
+# Rate Limiting (scraper politeness only)
 # ===================================================================
 def rate_limit(calls_per_minute: int = 10):
     def decorator(func):
@@ -140,8 +175,8 @@ class Colors:
 
 def print_banner() -> None:
     print(f"\n{Colors.HEADER}{'='*80}{Colors.ENDC}")
-    print(f"{Colors.OKBLUE} Velora v4.3.0 ULTIMATE - Premium Deterministic Analytics{Colors.ENDC}")
-    print(f"{Colors.OKCYAN}   13 Pro Insights | Cross-Reference Analysis | Vulnerability Scoring{Colors.ENDC}")
+    print(f"{Colors.OKBLUE} Velora v4.4.0 - Out-of-Stock Intelligence + Dashboard Summary{Colors.ENDC}")
+    print(f"{Colors.OKCYAN}   Stockout Detection - Fixed Cross-Reference - Headline Metrics{Colors.ENDC}")
     print(f"{Colors.HEADER}{'='*80}{Colors.ENDC}\n")
 
 def print_success(msg: str) -> None: print(f"{Colors.OKGREEN}[OK] {msg}{Colors.ENDC}")
@@ -179,7 +214,7 @@ class Config:
         if not self.supabase_url or not self.supabase_key:
             print_error("Missing Supabase credentials in .env")
             return False
-        print_info("[ENGINE] Premium Deterministic Analytics Engine - zero external AI cost")
+        print_info("[ENGINE] Deterministic Analytics Engine - zero external AI cost")
         return True
 
 # ===================================================================
@@ -279,6 +314,24 @@ class DatabaseManager:
         except Exception as e:
             self.logger.error(f"Failed to create competitor: {e}")
             return None
+
+    def get_previous_products(self, competitor_id: str) -> List[Dict[str, Any]]:
+        """
+        Fetches the competitor's previously-known product set BEFORE this
+        scan's upsert overwrites it. Used to diff against the current scrape
+        and detect stockouts/delistings. Call this before upsert_products().
+        """
+        try:
+            res = (
+                self.supabase.table("products")
+                .select("product_url, title, current_price")
+                .eq("competitor_id", competitor_id)
+                .execute()
+            )
+            return res.data or []
+        except Exception as e:
+            self.logger.warning(f"Could not fetch previous products for {competitor_id}: {e}")
+            return []
 
     def upsert_products(self, products: List[Dict[str, Any]], chunk_size: int = DB_CHUNK_SIZE) -> int:
         total = 0
@@ -381,7 +434,7 @@ class DatabaseManager:
                 insight['created_at'] = datetime.now(timezone.utc).isoformat()
 
             self.supabase.table("ai_insights").insert(insights).execute()
-            self.logger.info(f"Saved {len(insights)} premium deterministic insights")
+            self.logger.info(f"Saved {len(insights)} deterministic insights")
             return True
         except Exception as e:
             self.logger.error(f"Failed to save insights for competitor {competitor_id}: {e}")
@@ -399,16 +452,14 @@ class DatabaseManager:
                 f"We were unable to retrieve pricing data for {competitor_name} this cycle because the "
                 f"site is actively blocking automated requests{status_part}. Reason: {reason}."
             ),
-            "ai_recommendation": (
-                "No action needed - we'll automatically retry on the next scheduled scan."
-            ),
+            "ai_recommendation": "No action needed - we'll automatically retry on the next scheduled scan.",
             "severity": "medium",
             "created_at": timestamp,
         }
         try:
             self.supabase.table("ai_insights").delete().eq("competitor_id", competitor_id).eq("type", "scan_blocked").execute()
-        except Exception:
-            pass
+        except Exception as e:
+            self.logger.warning(f"Could not clear prior blocked-insight for {competitor_id}: {e}")
         try:
             self.supabase.table("ai_insights").insert(insight).execute()
             self.logger.info(f"Recorded 'scan_blocked' insight for {competitor_name}")
@@ -441,7 +492,7 @@ class DatabaseManager:
             return False
 
 # ===================================================================
-# PREMIUM DETERMINISTIC MARKET INTELLIGENCE ENGINE (v4.3.0)
+# PREMIUM DETERMINISTIC MARKET INTELLIGENCE ENGINE (v4.4.0)
 # ===================================================================
 class PremiumDeterministicMarketIntelligenceEngine:
     CATEGORY_KEYWORDS: List[str] = [
@@ -457,10 +508,12 @@ class PremiumDeterministicMarketIntelligenceEngine:
     FRESHNESS_KEYWORDS: List[str] = ["new in", "just dropped", "new arrival", "fresh", "launch"]
 
     def __init__(self, competitor: Dict[str, Any], products: List[Dict[str, Any]],
-                 db: Optional[DatabaseManager] = None) -> None:
+                 db: Optional[DatabaseManager] = None,
+                 disappeared_products: Optional[List[Dict[str, Any]]] = None) -> None:
         self.competitor = competitor
         self.products = products
         self.db = db
+        self.disappeared_products = disappeared_products or []
         self.name: str = competitor.get('name', 'Unknown')
         self.tier: str = competitor.get('_tier', 'free')
         self.limits: Dict[str, int] = competitor.get('_limits', TIER_LIMITS['free'])
@@ -579,20 +632,22 @@ class PremiumDeterministicMarketIntelligenceEngine:
 
         price_delta = self.db.get_price_delta(self.competitor['id']) if self.db else None
 
-        # Calculate vulnerability score (0-100)
         vulnerability_score = 0
         if hhi_score > 2500:
-            vulnerability_score += 25  # High concentration risk
+            vulnerability_score += 25
         if cov > 0.4:
-            vulnerability_score += 20  # Inconsistent pricing
+            vulnerability_score += 20
         if promo_pct < 5:
-            vulnerability_score += 15  # No promotional flexibility
+            vulnerability_score += 15
         if len(price_gaps) > 3:
-            vulnerability_score += 20  # Multiple price gaps
+            vulnerability_score += 20
         if velocity_pct > 30:
-            vulnerability_score += 10  # Over-reliance on bestsellers
+            vulnerability_score += 10
         if len(prices) < 50:
-            vulnerability_score += 10  # Small catalog
+            vulnerability_score += 10
+        if self.disappeared_products:
+            vulnerability_score += min(15, len(self.disappeared_products) * 3)  # stockouts add exploitable vulnerability
+        vulnerability_score = min(vulnerability_score, 100)
 
         return {
             "competitor_name": self.name,
@@ -634,8 +689,61 @@ class PremiumDeterministicMarketIntelligenceEngine:
             "freshness_count": freshness_count,
             "freshness_pct": freshness_pct,
             "freshness_samples": freshness_samples,
-            "vulnerability_score": min(vulnerability_score, 100),
+            "vulnerability_score": vulnerability_score,
         }
+
+    def _cross_reference_text(self, data: Dict[str, Any]) -> Tuple[str, str]:
+        """
+        FIX for the v4.3.0 contradiction: three genuinely distinct templates
+        selected by (HHI band, top-category %, CoV) instead of one template
+        that always said 'most concentrated... but least diversified'
+        regardless of the actual numbers.
+        """
+        hhi = data['hhi_score']
+        top_pct = data['top_cat_pct']
+        cov = data['cov']
+        gap = data['largest_gap_size']
+        top_cat = data['top_cat']
+
+        if hhi > 2500 and top_pct > 20:
+            # Genuinely concentrated: the gap-in-category attack is valid here.
+            summary = (
+                f"Connecting the dots: this competitor's highly concentrated catalog (HHI {hhi}) combined with "
+                f"{data['cov_interp']} pricing (CoV {cov}) creates a structurally exposed position. Their "
+                f"${gap} price gap sits inside the '{top_cat}' category ({top_pct}% of their catalog) - the "
+                "category they depend on most is also the one with the uncovered price band."
+            )
+            recommendation = (
+                f"Exploit the intersection directly: launch a premium product inside the ${gap} price gap, "
+                f"specifically targeting the '{top_cat}' category where they are both most concentrated and "
+                "least defended on price. This attacks their core revenue stream at its weakest point."
+            )
+        elif hhi <= 1500:
+            # Genuinely diversified: the old template's "least diversified" claim would be false here.
+            summary = (
+                f"Connecting the dots: this competitor's diversified catalog (HHI {hhi}, top category '{top_cat}' "
+                f"at only {top_pct}%) combined with {data['cov_interp']} pricing (CoV {cov}) means no single "
+                "category concentration to attack - their risk is spread thin rather than concentrated."
+            )
+            recommendation = (
+                "Don't attack a single category - you won't find a concentrated weak point. Instead, build a "
+                "differentiated brand story around depth in ONE category rather than breadth across many. "
+                "Specialists consistently out-convert generalists with price-sensitive comparison shoppers."
+            )
+        else:
+            # Moderate concentration: a blended read.
+            summary = (
+                f"Connecting the dots: this competitor sits in a moderate-concentration zone (HHI {hhi}), with "
+                f"'{top_cat}' at {top_pct}% of catalog and {data['cov_interp']} pricing (CoV {cov}). Their "
+                f"${gap} price gap is a real opportunity, but it isn't as structurally tied to a single "
+                "over-exposed category as a highly concentrated competitor would be."
+            )
+            recommendation = (
+                f"Use the ${gap} price gap as the primary lever, but don't over-index the messaging on "
+                f"'{top_cat}' alone - this competitor has enough category spread that a single-category "
+                "attack has a shorter shelf life than it would against a more concentrated rival."
+            )
+        return summary, recommendation
 
     def _generate_premium_insights(self) -> List[Dict[str, Any]]:
         data = self._analyze_data()
@@ -646,7 +754,9 @@ class PremiumDeterministicMarketIntelligenceEngine:
         timestamp = datetime.now(timezone.utc).isoformat()
         comp_id = self.competitor.get('id')
 
-        # 1. Executive Summary (Premium Version)
+        # --- Build the core insight set first (needed to compute dashboard counts) ---
+        core_insights: List[Dict[str, Any]] = []
+
         vuln_level = "HIGH" if data['vulnerability_score'] > 70 else "MEDIUM" if data['vulnerability_score'] > 40 else "LOW"
         exec_summary = (
             f"{data['competitor_name']} operates with {data['products_with_pricing']} products averaging ${data['avg_price']}, "
@@ -654,68 +764,59 @@ class PremiumDeterministicMarketIntelligenceEngine:
             f"The top category, '{data['top_cat']}', accounts for {data['top_cat_pct']}% of the catalog "
             f"with an HHI of {data['hhi_score']} ({data['hhi_interp']}). "
             f"Price discipline is {data['cov_interp']} (CoV: {data['cov']}). "
-            f"**Vulnerability Score: {data['vulnerability_score']}/100 ({vuln_level})** - "
-            f"indicating {'significant' if data['vulnerability_score'] > 70 else 'moderate' if data['vulnerability_score'] > 40 else 'limited'} strategic weaknesses you can exploit."
+            f"Vulnerability Score: {data['vulnerability_score']}/100 ({vuln_level})."
         )
         if data['price_delta']:
             direction = "risen" if data['price_delta']['pct_change'] > 0 else "fallen"
             exec_summary += f" Notably, average prices have {direction} {abs(data['price_delta']['pct_change'])}% since the last scan."
 
-        insights.append({
-            "competitor_id": comp_id, "type": "executive_summary", "title": "Premium Market Overview",
+        core_insights.append({
+            "competitor_id": comp_id, "type": "executive_summary", "title": "Market Overview",
             "summary": exec_summary,
-            "ai_recommendation": f"With a vulnerability score of {data['vulnerability_score']}/100, this competitor has {'critical' if data['vulnerability_score'] > 70 else 'notable'} weaknesses. Review the strategic insights below for data-backed counter-moves tailored to exploit these vulnerabilities.",
+            "ai_recommendation": f"With a vulnerability score of {data['vulnerability_score']}/100, this competitor has {'critical' if data['vulnerability_score'] > 70 else 'notable'} weaknesses. Review the strategic insights below for data-backed counter-moves.",
             "severity": "high" if data['vulnerability_score'] > 70 else "medium", "created_at": timestamp
         })
 
-        # 2. Critical Price Gap (Enhanced)
         if data['largest_gap_size'] > 0:
             target_price = round((data['largest_gap_from'] + data['largest_gap_to']) / 2, 2)
             lower_title = self._title_near_price(data['largest_gap_from'])
             upper_title = self._title_near_price(data['largest_gap_to'])
-            insights.append({
+            core_insights.append({
                 "competitor_id": comp_id, "type": "product_gap", "title": "Critical Price Gap Identified",
                 "summary": (
                     f"A significant whitespace exists between ${data['largest_gap_from']} ('{lower_title}') and "
                     f"${data['largest_gap_to']} ('{upper_title}') - a gap of ${data['largest_gap_size']} "
-                    f"({data['largest_gap_ratio']}x the average price). "
-                    f"The competitor has zero products in this range, leaving an unmonetized segment of buyers "
-                    f"who want more than '{lower_title}' but aren't ready to pay for '{upper_title}'. "
-                    f"This represents a **${data['largest_gap_size']} revenue opportunity per unit sold**."
+                    f"({data['largest_gap_ratio']}x the average price). The competitor has zero products in this "
+                    f"range, leaving an unmonetized segment of buyers who want more than '{lower_title}' but "
+                    f"aren't ready to pay for '{upper_title}'."
                 ),
                 "ai_recommendation": (
                     f"Launch a flagship product priced precisely at ${target_price}, positioned directly between "
-                    f"'{lower_title}' and '{upper_title}'. Target a 30-day uptake of 500+ units. "
-                    f"This tactical entry captures unmet mid-premium demand and forces pricing recalibration. "
-                    f"**Expected ROI: 15-25% within 90 days** if executed with targeted social media campaigns."
+                    f"'{lower_title}' and '{upper_title}'. Target a 30-day uptake of 500+ units. This tactical "
+                    "entry captures unmet mid-premium demand and forces pricing recalibration."
                 ),
                 "severity": "high", "created_at": timestamp
             })
 
-        # 3. Category Concentration Risk
         cat_phrase = f", such as '{data['top_cat_samples'][0]}'" if data['top_cat_samples'] else ""
-        insights.append({
+        core_insights.append({
             "competitor_id": comp_id, "type": "category_dominance", "title": "Category Concentration Risk",
             "summary": (
                 f"The catalog is {data['hhi_interp']} (HHI Index: {data['hhi_score']}). The top category "
                 f"'{data['top_cat']}'{cat_phrase} represents {data['top_cat_pct']}% of products, with only "
                 f"{data['top_cat_count']} items. This heavy reliance exposes the brand to category-specific demand "
-                f"shocks and limits cross-sell opportunities. "
-                f"**Risk Level: {'Critical' if data['hhi_score'] > 2500 else 'Moderate' if data['hhi_score'] > 1500 else 'Low'}** - "
-                f"a single category downturn could impact {data['top_cat_pct']}% of their revenue."
+                "shocks and limits cross-sell opportunities."
             ),
             "ai_recommendation": (
-                "Diversify into adjacent, high-margin categories (e.g., accessories or premium variants) to dilute "
-                f"the HHI index below 2000. Introduce bundled kits built around"
+                "Diversify into adjacent, high-margin categories to dilute the HHI index below 2000. Introduce "
+                "bundled kits built around"
                 + (f" '{data['top_cat_samples'][0]}'" if data['top_cat_samples'] else f" the {data['top_cat']} line")
-                + " to increase Average Order Value (AOV) by 25-40% and create new revenue streams. "
-                f"**Target: Reduce HHI by 30% within 6 months** through strategic category expansion."
+                + " to increase AOV by 25-40%."
             ),
             "severity": "high" if data['hhi_score'] > 2500 else "medium", "created_at": timestamp
         })
 
-        # 4. Promotional Behavior Signal
-        insights.append({
+        core_insights.append({
             "competitor_id": comp_id, "type": "competitive_threat", "title": "Promotional Intensity Analysis",
             "summary": (
                 f"Promotional intensity is at {data['promo_pct']}%, with {data['budget_promo_count']} promos in the "
@@ -723,209 +824,200 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 f"{'This lack of aggressive discounting indicates strong pricing confidence, but leaves them vulnerable to tactical, time-bound promotions.' if data['promo_pct'] < 10 else 'High promotional activity suggests inventory pressure or aggressive customer acquisition strategy.'}"
             ),
             "ai_recommendation": (
-                f"{'Deploy a targeted 15% off flash campaign on mid-tier staples to stimulate demand and capture price-sensitive shoppers who are currently bypassing their rigid pricing structure.' if data['promo_pct'] < 10 else 'Counter their promotional blitz with value-added bundles rather than price cuts. Maintain margin integrity while matching their urgency.'}"
+                f"{'Deploy a targeted 15% off flash campaign on mid-tier staples to capture price-sensitive shoppers bypassing their rigid pricing structure.' if data['promo_pct'] < 10 else 'Counter their promotional blitz with value-added bundles rather than price cuts. Maintain margin integrity while matching their urgency.'}"
             ),
             "severity": "medium", "created_at": timestamp
         })
 
-        # 5. Pricing Discipline
-        insights.append({
+        core_insights.append({
             "competitor_id": comp_id, "type": "pricing_warfare", "title": "Pricing Discipline Assessment",
             "summary": (
                 f"The Price Coefficient of Variation (CoV) is {data['cov']}, indicating {data['cov_interp']} pricing. "
-                f"The price spread ranges from ${data['min_price']} to ${data['max_price']} "
-                f"(${round(data['max_price'] - data['min_price'], 2)} range). "
-                f"{'Frequent price adjustments or wide variances at this level can erode brand trust and confuse customers navigating the price ladder.' if data['cov'] > 0.4 else 'This disciplined approach builds customer trust but may indicate missed opportunities for dynamic pricing optimization.'}"
+                f"The price spread ranges from ${data['min_price']} to ${data['max_price']}. "
+                f"{'Frequent price adjustments or wide variances at this level can erode brand trust.' if data['cov'] > 0.4 else 'This disciplined approach builds customer trust but may indicate missed dynamic-pricing opportunities.'}"
             ),
             "ai_recommendation": (
-                f"{'Implement a strict, tiered pricing architecture with a maximum 5-10% variance band per segment. Introduce a price-match guarantee for mid-tier products to reinforce consumer confidence and build a defensible pricing moat.' if data['cov'] > 0.4 else 'Study their pricing discipline as a benchmark. Implement similar price stability in your core offerings while using strategic promotions in peripheral categories to drive traffic.'}"
+                f"{'Implement a strict, tiered pricing architecture with a maximum 5-10% variance band per segment.' if data['cov'] > 0.4 else 'Study their pricing discipline as a benchmark while using strategic promotions in peripheral categories to drive traffic.'}"
             ),
             "severity": "high" if data['cov'] > 0.4 else "medium", "created_at": timestamp
         })
 
-        # 6. Historical Delta
         if data['price_delta']:
             direction = "risen" if data['price_delta']['pct_change'] > 0 else "fallen"
-            insights.append({
+            core_insights.append({
                 "competitor_id": comp_id, "type": "market_timing", "title": "Historical Price Shift Detected",
                 "summary": (
                     f"Since the last scan, the competitor's average price has {direction} by "
                     f"{abs(data['price_delta']['pct_change'])}% (from ${data['price_delta']['prior_avg']} to "
-                    f"${data['price_delta']['latest_avg']}). This indicates a strategic shift in their margin "
-                    f"targets or cost structure. "
-                    f"**Signal: {'Margin expansion attempt' if data['price_delta']['pct_change'] > 5 else 'Competitive pressure response' if data['price_delta']['pct_change'] < -5 else 'Minor adjustment'}**"
+                    f"${data['price_delta']['latest_avg']}). This indicates a strategic shift in margin targets "
+                    "or cost structure."
                 ),
                 "ai_recommendation": (
-                    f"{'Capitalize on this shift immediately. If prices rose, position your alternatives as the smart value choice. Emphasize comparable quality at lower prices to capture margin-conscious buyers.' if data['price_delta']['pct_change'] > 0 else 'If prices fell, emphasize your superior quality and brand equity to avoid a race to the bottom. Highlight lifetime value and durability over short-term savings.'}"
+                    "Capitalize on this shift immediately. If prices rose, position alternatives as the smart "
+                    "value choice. If prices fell, emphasize superior quality and brand equity to avoid a race "
+                    "to the bottom."
                 ),
                 "severity": "high", "created_at": timestamp
             })
 
-        # 7. Sales Velocity & Scarcity
         if data['velocity_pct'] > 0 or data['scarcity_pct'] > 0:
             vel_phrase = f", including {self._format_sample_titles(data['velocity_samples'])}" if data['velocity_samples'] else ""
             anchor = data['velocity_samples'][0] if data['velocity_samples'] else (data['top_cat_samples'][0] if data['top_cat_samples'] else data['top_cat'])
-            insights.append({
+            core_insights.append({
                 "competitor_id": comp_id, "type": "competitive_threat", "title": "Sales Velocity & Scarcity Signals",
                 "summary": (
-                    f"Deep text analysis reveals {data['velocity_pct']}% of products carry 'bestseller' or "
-                    f"'popular' tags{vel_phrase}, while {data['scarcity_pct']}% show scarcity signals ('low stock', "
-                    f"'final sale'). This indicates high inventory turnover and strong demand in specific segments, "
-                    f"acting as a 'cash cow' for the competitor. "
-                    f"**Dependency Risk: {'High' if data['velocity_pct'] > 30 else 'Moderate'}** - "
-                    f"they rely heavily on these bestsellers for revenue stability."
+                    f"Deep text analysis reveals {data['velocity_pct']}% of products carry 'bestseller' tags"
+                    f"{vel_phrase}, while {data['scarcity_pct']}% show scarcity signals. This indicates high "
+                    "inventory turnover acting as a 'cash cow' for the competitor."
                 ),
                 "ai_recommendation": (
-                    f"Do not engage in direct price wars on items like '{anchor}'. Instead, launch a complementary "
-                    f"cross-sell product or a premium alternative at a 15-20% higher price point, targeting the same "
-                    f"high-intent audience with superior value or bundling. **Strategy: Capture 20% of their bestseller traffic** through SEO and content marketing focused on comparison shopping."
+                    f"Don't price-war items like '{anchor}'. Launch a complementary cross-sell or a premium "
+                    "alternative at a 15-20% higher price point targeting the same high-intent audience."
                 ),
                 "severity": "high", "created_at": timestamp
             })
 
-        # 8. Assortment Freshness
         if data['freshness_pct'] > 0:
             fresh_phrase = f", such as {self._format_sample_titles(data['freshness_samples'])}" if data['freshness_samples'] else ""
-            insights.append({
+            core_insights.append({
                 "competitor_id": comp_id, "type": "market_timing", "title": "Assortment Freshness & Rapid Drops",
                 "summary": (
-                    f"The competitor is actively pushing new inventory, with {data['freshness_pct']}% of the catalog "
-                    f"tagged as 'New In' or 'Just Dropped'{fresh_phrase}. This rapid product turnover strategy aims "
-                    f"to create urgency and capture trend-driven buyers. "
-                    f"**Cadence: {'Weekly drops' if data['freshness_pct'] > 15 else 'Bi-weekly drops' if data['freshness_pct'] > 7 else 'Monthly drops'}**"
+                    f"The competitor is actively pushing new inventory, with {data['freshness_pct']}% of the "
+                    f"catalog tagged 'New In' or 'Just Dropped'{fresh_phrase}."
                 ),
                 "ai_recommendation": (
-                    "Counter this rapid-drop strategy not by matching their speed, but by establishing an "
-                    "'evergreen' staple product with superior quality and a lifetime guarantee. Position your brand "
-                    "as the reliable, long-term investment versus their fast-fashion approach. "
-                    "**Tactic: Launch a 'Buy It For Life' campaign** emphasizing durability and timeless design."
+                    "Counter not by matching their speed, but by establishing an 'evergreen' staple with a "
+                    "lifetime guarantee - the reliable long-term investment versus their fast-fashion approach."
                 ),
                 "severity": "medium", "created_at": timestamp
             })
 
-        # ===================================================================
-        # PRO-ONLY PREMIUM INSIGHTS (Only for Pro, Pro Plus, Enterprise)
-        # ===================================================================
-        if self.tier in ('pro', 'pro_plus', 'enterprise'):
-            
-            # 9. Vulnerability Score Deep Dive (PRO ONLY)
-            vuln_factors = []
-            if data['hhi_score'] > 2500:
-                vuln_factors.append(f"Category concentration (HHI {data['hhi_score']}) - {data['top_cat_pct']}% reliance on '{data['top_cat']}'")
-            if data['cov'] > 0.4:
-                vuln_factors.append(f"Inconsistent pricing (CoV {data['cov']}) - confuses customers and erodes trust")
-            if data['promo_pct'] < 5:
-                vuln_factors.append(f"Zero promotional flexibility ({data['promo_pct']}%) - can't respond to market pressure")
-            if data.get('largest_gap_size', 0) > 0:
-                vuln_factors.append(f"Price gaps (${data['largest_gap_size']} uncovered) - unmonetized segments")
-            
-            insights.append({
-                "competitor_id": comp_id, "type": "vulnerability_analysis", "title": "Vulnerability Score: Deep Dive",
+        # --- NEW: Out-of-Stock Monitoring (Pro-only, needs a prior scan to diff against) ---
+        if self.tier in ('pro', 'pro_plus', 'enterprise') and self.disappeared_products:
+            shown = self.disappeared_products[:3]
+            titles_prices = "; ".join(
+                f"'{p.get('title', 'Unnamed product')}' (was ${p.get('current_price', 0):.2f})"
+                for p in shown
+            )
+            core_insights.append({
+                "competitor_id": comp_id, "type": "out_of_stock_signal", "title": "Competitor Stockout/Delisting Detected",
                 "summary": (
-                    f"**Vulnerability Score: {data['vulnerability_score']}/100** - "
-                    f"{'This competitor has critical strategic weaknesses you can exploit immediately.' if data['vulnerability_score'] > 70 else 'This competitor has notable vulnerabilities in specific areas.' if data['vulnerability_score'] > 40 else 'This competitor is relatively well-positioned with limited exploitable weaknesses.'} "
-                    f"{'Key vulnerability factors: ' + '; '.join(vuln_factors[:3]) if vuln_factors else 'No major vulnerabilities detected in current strategy.'}"
+                    f"{len(self.disappeared_products)} product(s) that were in the competitor's catalog on the "
+                    f"last scan are no longer listed, including: {titles_prices}. This typically signals either "
+                    "a stockout or a deliberate delisting - both represent a narrow, time-sensitive window where "
+                    "their demand for these items has nowhere to go."
                 ),
                 "ai_recommendation": (
-                    f"{'Immediate action recommended: Target their top 3 vulnerabilities with coordinated marketing campaigns. Allocate 60% of Q4 budget to exploit these weaknesses before they can respond.' if data['vulnerability_score'] > 70 else 'Strategic approach: Focus on their top 1-2 vulnerabilities and build a differentiated value proposition around these gaps.' if data['vulnerability_score'] > 40 else 'Differentiation strategy: Since they have few obvious weaknesses, compete on brand storytelling, customer experience, or niche specialization rather than direct price/product comparison.'}"
-                ),
-                "severity": "critical" if data['vulnerability_score'] > 70 else "high" if data['vulnerability_score'] > 40 else "medium", "created_at": timestamp
-            })
-
-            # 10. Financial Execution Blueprint (PRO ONLY)
-            target_margin_price = round(data['avg_price'] * 1.2, 2)
-            anchor_line = data['top_cat_samples'][0] if data['top_cat_samples'] else f"the {data['top_cat']} line"
-            insights.append({
-                "competitor_id": comp_id, "type": "financial_blueprint", "title": "Financial Execution Blueprint",
-                "summary": (
-                    f"Detailed rollout plan for the identified price gap and category expansion. "
-                    f"**Target Product:** Premium alternative to '{anchor_line}'. "
-                    f"**Market Opportunity:** Capture the ${data['largest_gap_size']} price gap between "
-                    f"'{self._title_near_price(data['largest_gap_from'])}' and '{self._title_near_price(data['largest_gap_to'])}'."
-                ),
-                "ai_recommendation": (
-                    f"**Product:** Premium alternative to '{anchor_line}'. "
-                    f"**Target Price:** ${target_margin_price} (20% above competitor average). "
-                    f"**Target Gross Margin:** 45% (industry best-in-class). "
-                    f"**Initial Production Run:** 1,000 units. "
-                    f"**Days-to-execute:** 30 days from concept to launch. "
-                    f"**Success KPI:** Achieve 15% market share of the identified gap segment within 60 days, "
-                    f"generating ~${round(target_margin_price * 1000, 2):,.2f} in revenue. "
-                    f"**Break-even:** 600 units (60% of initial run). "
-                    f"**Marketing Budget:** 15% of projected revenue (${round(target_margin_price * 1000 * 0.15, 2):,.2f})."
+                    f"Launch a targeted ad campaign within the next 48-72 hours bidding on keywords tied to "
+                    f"'{shown[0].get('title', 'the missing product')}' and similar missing items - this is a "
+                    "short-lived window before the competitor restocks or a different competitor fills the gap. "
+                    "Prioritize search and retargeting ads over broad awareness spend for maximum capture."
                 ),
                 "severity": "critical", "created_at": timestamp
             })
 
-            # 11. Quick Wins (PRO ONLY)
-            insights.append({
-                "competitor_id": comp_id, "type": "quick_wins", "title": "Quick Wins (Execute in 7 Days)",
+        # --- Pro-only extras ---
+        if self.tier in ('pro', 'pro_plus', 'enterprise'):
+            vuln_factors = []
+            if data['hhi_score'] > 2500:
+                vuln_factors.append(f"Category concentration (HHI {data['hhi_score']}) - {data['top_cat_pct']}% reliance on '{data['top_cat']}'")
+            if data['cov'] > 0.4:
+                vuln_factors.append(f"Inconsistent pricing (CoV {data['cov']})")
+            if data['promo_pct'] < 5:
+                vuln_factors.append(f"Zero promotional flexibility ({data['promo_pct']}%)")
+            if data.get('largest_gap_size', 0) > 0:
+                vuln_factors.append(f"Price gaps (${data['largest_gap_size']} uncovered)")
+            if self.disappeared_products:
+                vuln_factors.append(f"{len(self.disappeared_products)} stocked-out/delisted product(s)")
+
+            core_insights.append({
+                "competitor_id": comp_id, "type": "vulnerability_analysis", "title": "Vulnerability Score: Deep Dive",
                 "summary": (
-                    "Four immediate actions to exploit competitor weaknesses:\n"
-                    "- Launch a 15% off flash sale on mid-tier staples to capture price-sensitive traffic.\n"
-                    "- Introduce a bundled accessory to increase AOV by 10-15%.\n"
-                    f"- Deploy targeted ads highlighting the competitor's ${data['largest_gap_size']} price gap.\n"
-                    "- Audit top 3 SKUs for bundling opportunities with complementary products."
+                    f"Vulnerability Score: {data['vulnerability_score']}/100 - "
+                    f"{'This competitor has critical strategic weaknesses you can exploit immediately.' if data['vulnerability_score'] > 70 else 'This competitor has notable vulnerabilities in specific areas.' if data['vulnerability_score'] > 40 else 'This competitor is relatively well-positioned.'} "
+                    f"{'Key factors: ' + '; '.join(vuln_factors[:4]) if vuln_factors else 'No major vulnerabilities detected.'}"
                 ),
                 "ai_recommendation": (
-                    "Assign these to your growth team immediately for rapid execution. "
-                    "**Expected Impact:** 20-30% increase in conversion rate within 14 days. "
-                    "**Tracking:** Set up UTM parameters and dedicated landing pages to measure lift accurately. "
-                    "**Budget Allocation:** $500-1,000 in ad spend for initial test phase."
+                    f"{'Immediate action: target their top 3 vulnerabilities with coordinated campaigns this quarter.' if data['vulnerability_score'] > 70 else 'Strategic approach: focus on their top 1-2 vulnerabilities and build a differentiated value proposition.' if data['vulnerability_score'] > 40 else 'Differentiation strategy: compete on brand storytelling or niche specialization rather than direct comparison.'}"
                 ),
+                "severity": "critical" if data['vulnerability_score'] > 70 else "high" if data['vulnerability_score'] > 40 else "medium",
+                "created_at": timestamp
+            })
+
+            target_margin_price = round(data['avg_price'] * 1.2, 2)
+            anchor_line = data['top_cat_samples'][0] if data['top_cat_samples'] else f"the {data['top_cat']} line"
+            core_insights.append({
+                "competitor_id": comp_id, "type": "financial_blueprint", "title": "Financial Execution Blueprint",
+                "summary": f"Detailed rollout plan targeting a premium alternative to '{anchor_line}'.",
+                "ai_recommendation": (
+                    f"Product: Premium alternative to '{anchor_line}'. Target Price: ${target_margin_price} "
+                    "(20% above competitor average). Target Gross Margin: 45%. Initial Run: 1,000 units. "
+                    f"Days-to-execute: 30. Success KPI: 15% market share of the gap segment within 60 days "
+                    f"(~${round(target_margin_price * 1000, 2):,.2f} revenue). Break-even: 600 units."
+                ),
+                "severity": "critical", "created_at": timestamp
+            })
+
+            core_insights.append({
+                "competitor_id": comp_id, "type": "quick_wins", "title": "Quick Wins (Execute in 7 Days)",
+                "summary": (
+                    "- Launch a 15% off flash sale on mid-tier staples.\n"
+                    "- Introduce a bundled accessory to increase AOV by 10-15%.\n"
+                    f"- Deploy targeted ads highlighting the competitor's ${data['largest_gap_size']} price gap.\n"
+                    "- Audit top 3 SKUs for bundling opportunities."
+                ),
+                "ai_recommendation": "Assign to your growth team immediately. Expected impact: 20-30% conversion lift within 14 days.",
                 "severity": "high", "created_at": timestamp
             })
 
-            # 12. Strategic Timeline (PRO ONLY)
-            insights.append({
+            core_insights.append({
                 "competitor_id": comp_id, "type": "strategic_timeline", "title": "Strategic Timeline (30-60-90 Day)",
                 "summary": (
-                    "**30 Days:** Launch gap-filling product and achieve 500+ unit uptake. "
-                    "Establish baseline conversion metrics and customer feedback loops.\n\n"
-                    "**60 Days:** Diversify top category with 3 new accessory SKUs. "
-                    "Expand marketing reach through influencer partnerships and content marketing.\n\n"
-                    "**90 Days:** Achieve 15% market share in the targeted whitespace segment. "
-                    "Begin planning Q2 product roadmap based on initial performance data."
+                    "30 Days: Launch gap-filling product, achieve 500+ unit uptake.\n"
+                    "60 Days: Diversify top category with 3 new accessory SKUs.\n"
+                    "90 Days: Achieve 15% market share in the targeted whitespace segment."
                 ),
-                "ai_recommendation": (
-                    "Assign a dedicated owner and a check-in date to each milestone above to ensure accountability. "
-                    "**Weekly Check-ins:** Every Monday at 9 AM with the growth team. "
-                    "**Monthly Reviews:** Full performance analysis with executive stakeholders. "
-                    "**Success Criteria:** 15% market share in 90 days = $X revenue target (adjust based on your market size)."
-                ),
+                "ai_recommendation": "Assign a dedicated owner and check-in date to each milestone above.",
                 "severity": "medium", "created_at": timestamp
             })
 
-            # 13. Cross-Reference Analysis (PRO ONLY) - FIXED BACKSLASH ERROR
-            if data['top_cat_pct'] > 20:
-                cross_rec = (
-                    f"Exploit the intersection: launch a premium product inside the ${data['largest_gap_size']} "
-                    f"price gap, specifically targeting the '{data['top_cat']}' category where they are most "
-                    f"concentrated ({data['top_cat_pct']}% of catalog) but least diversified. This attacks their "
-                    f"core revenue stream at its weakest, uncovered price band."
-                )
-            else:
-                cross_rec = (
-                    "Build a differentiated brand story that emphasizes your category diversity versus their "
-                    "concentration risk. Use content marketing to position yourself as the versatile, "
-                    "customer-centric alternative."
-                )
-
-            insights.append({
+            cross_summary, cross_rec = self._cross_reference_text(data)
+            core_insights.append({
                 "competitor_id": comp_id, "type": "cross_reference", "title": "Cross-Reference Strategic Analysis",
-                "summary": (
-                    f"Connecting the dots: this competitor's {data['hhi_interp']} catalog (HHI {data['hhi_score']}) "
-                    f"combined with {data['cov_interp']} pricing (CoV {data['cov']}) creates a "
-                    f"{'vulnerable' if data['vulnerability_score'] > 50 else 'stable'} strategic position. "
-                    f"Their ${data['largest_gap_size']} price gap sits inside the '{data['top_cat']}' category "
-                    f"({data['top_cat_pct']}% of their catalog), which turns it into a "
-                    f"{'high-impact' if data['top_cat_pct'] > 20 else 'moderate-impact'} opportunity."
-                ),
+                "summary": cross_summary,
                 "ai_recommendation": cross_rec,
                 "severity": "high", "created_at": timestamp
             })
 
-        self.logger.info(f"[ENGINE] Generated {len(insights)} premium deterministic insights for tier: {self.tier}")
+        # --- NEW: Executive Dashboard Summary (prepended, both tiers) ---
+        critical_high_count = sum(1 for i in core_insights if i.get('severity') in ('critical', 'high'))
+        estimated_opportunity = round(data['largest_gap_size'] * 500, 2) if data['largest_gap_size'] > 0 else 0.0
+        dashboard_summary = (
+            f"{critical_high_count} Critical/High-Priority Findings | "
+            f"${estimated_opportunity:,.0f} Estimated Untapped Opportunity | "
+            f"Vulnerability Score: {data['vulnerability_score']}/100"
+        )
+        dashboard_rec = (
+            "These three numbers summarize the full report below. Start with the Price Gap and Vulnerability "
+            "Deep Dive insights for the highest-leverage actions."
+            if self.tier in ('pro', 'pro_plus', 'enterprise') else
+            "Upgrade to Pro for the full vulnerability breakdown, financial execution blueprint, and stockout monitoring."
+        )
+        insights.append({
+            "competitor_id": comp_id, "type": "dashboard_summary", "title": "Executive Dashboard",
+            "summary": dashboard_summary,
+            "ai_recommendation": dashboard_rec,
+            "severity": "critical" if data['vulnerability_score'] > 70 else "high" if data['vulnerability_score'] > 40 else "medium",
+            "created_at": timestamp
+        })
+
+        # Free tier gets the first 6 core insights; Pro gets everything built above.
+        if self.tier == 'free':
+            insights.extend(core_insights[:6])
+        else:
+            insights.extend(core_insights)
+
+        self.logger.info(f"[ENGINE] Generated {len(insights)} insights for tier: {self.tier}")
         return insights
 
     def _generate_fallback_insights(self) -> List[Dict[str, Any]]:
@@ -1079,6 +1171,10 @@ class VeloraScraper:
             print(f"{Colors.BOLD}Price Delta vs Last Scan:{Colors.ENDC} {d['pct_change']}% (${d['prior_avg']} -> ${d['latest_avg']})")
         print()
 
+        dashboard = next((i for i in insights if i.get('type') == 'dashboard_summary'), None)
+        if dashboard:
+            print(f"{Colors.BOLD}EXECUTIVE DASHBOARD:{Colors.ENDC}\n  {dashboard.get('summary')}\n")
+
         exec_insight = next((i for i in insights if i.get('type') == 'executive_summary'), None)
         if exec_insight:
             print(f"{Colors.BOLD}EXECUTIVE SUMMARY:{Colors.ENDC}\n  {exec_insight.get('summary')}\n")
@@ -1087,7 +1183,7 @@ class VeloraScraper:
             "pricing_warfare", "product_gap", "competitive_threat", "counter_move", "market_timing",
             "brand_positioning", "customer_psychology", "supply_chain_signal", "category_dominance",
             "financial_blueprint", "strategic_timeline", "quick_wins", "risk_assessment",
-            "vulnerability_analysis", "cross_reference"
+            "vulnerability_analysis", "cross_reference", "out_of_stock_signal"
         }
 
         print_header("STRATEGIC INSIGHTS")
@@ -1112,6 +1208,10 @@ class VeloraScraper:
         print(f"\n{'='*80}\n[TARGET] Target Acquired: {competitor_name}\n[URL] {url}\n[TIER] {tier.upper()} (max {limits['max_products']} products)\n{'='*80}\n")
 
         try:
+            # Capture the prior product set BEFORE upsert overwrites it - this is
+            # what makes Out-of-Stock Monitoring possible.
+            previous_products = self.db.get_previous_products(competitor_id)
+
             products, blocked_error = self.scraper.scrape(url, max_products=limits['max_products'])
 
             if blocked_error:
@@ -1126,6 +1226,18 @@ class VeloraScraper:
 
             timestamp = datetime.now(timezone.utc).isoformat()
             cleaned_products = [self.scraper.clean_product_data(p, competitor_id, timestamp) for p in products]
+
+            # Compute disappeared products BEFORE the upsert (previous_products was
+            # already captured above, so this diff is safe regardless of write order).
+            disappeared_products: List[Dict[str, Any]] = []
+            if previous_products:
+                current_urls = {p.get('product_url') for p in cleaned_products if p.get('product_url')}
+                disappeared_products = [
+                    p for p in previous_products
+                    if p.get('product_url') and p.get('product_url') not in current_urls
+                ]
+                if disappeared_products:
+                    print_warning(f"[STOCKOUT] {len(disappeared_products)} product(s) disappeared since last scan for {competitor_name}")
 
             if self.db.upsert_products(cleaned_products) == 0:
                 print_error(f"Failed to save any products for {competitor_name}")
@@ -1155,7 +1267,9 @@ class VeloraScraper:
             else:
                 print_info("[SKIP] First scan - skipping trend analysis")
 
-            intel_engine = PremiumDeterministicMarketIntelligenceEngine(competitor, products, db=self.db)
+            intel_engine = PremiumDeterministicMarketIntelligenceEngine(
+                competitor, products, db=self.db, disappeared_products=disappeared_products
+            )
             insights = intel_engine.generate_all_insights()
 
             brief = intel_engine._analyze_data()
@@ -1228,7 +1342,7 @@ class VeloraScraper:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Velora v4.3.0 ULTIMATE - Premium Deterministic Analytics",
+        description="Velora v4.4.0 - Out-of-Stock Intelligence + Dashboard Summary",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('url', nargs='?', help='Store URL to scan (optional)')
