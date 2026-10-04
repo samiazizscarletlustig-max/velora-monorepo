@@ -569,6 +569,10 @@ class PremiumDeterministicMarketIntelligenceEngine:
         cov_interp = "inconsistent/opportunistic" if cov > 0.4 else "disciplined/confident" if cov < 0.15 else "moderate"
 
         promo_pct = round((promotion_count / len(self.products)) * 100, 1) if self.products else 0.0
+        velocity_pct = round((velocity_count / len(self.products)) * 100, 1) if self.products else 0.0
+        scarcity_pct = round((scarcity_count / len(self.products)) * 100, 1) if self.products else 0.0
+        freshness_pct = round((freshness_count / len(self.products)) * 100, 1) if self.products else 0.0
+
         top_cat = top_categories[0] if top_categories else ("unknown", 0)
         top_cat_pct = round((top_cat[1] / len(prices)) * 100, 1) if len(prices) > 0 else 0.0
         largest_gap = price_gap_ratios[0] if price_gap_ratios else {"from": 0, "to": 0, "size": 0, "ratio_to_avg": 0}
@@ -585,7 +589,7 @@ class PremiumDeterministicMarketIntelligenceEngine:
             vulnerability_score += 15  # No promotional flexibility
         if len(price_gaps) > 3:
             vulnerability_score += 20  # Multiple price gaps
-        if data.get('velocity_pct', 0) > 30:
+        if velocity_pct > 30:
             vulnerability_score += 10  # Over-reliance on bestsellers
         if len(prices) < 50:
             vulnerability_score += 10  # Small catalog
@@ -622,13 +626,13 @@ class PremiumDeterministicMarketIntelligenceEngine:
             "top_3_premium": [round(p.get("current_price", 0), 2) for p in sorted_products[:3]],
             "top_3_entry": [round(p.get("current_price", 0), 2) for p in sorted_products[-3:] if p.get("current_price")],
             "velocity_count": velocity_count,
-            "velocity_pct": round((velocity_count / len(self.products)) * 100, 1) if self.products else 0.0,
+            "velocity_pct": velocity_pct,
             "velocity_samples": velocity_samples,
             "scarcity_count": scarcity_count,
-            "scarcity_pct": round((scarcity_count / len(self.products)) * 100, 1) if self.products else 0.0,
+            "scarcity_pct": scarcity_pct,
             "scarcity_samples": scarcity_samples,
             "freshness_count": freshness_count,
-            "freshness_pct": round((freshness_count / len(self.products)) * 100, 1) if self.products else 0.0,
+            "freshness_pct": freshness_pct,
             "freshness_samples": freshness_samples,
             "vulnerability_score": min(vulnerability_score, 100),
         }
@@ -689,7 +693,6 @@ class PremiumDeterministicMarketIntelligenceEngine:
             })
 
         # 3. Category Concentration Risk
-        cat_sample_text = self._format_sample_titles(data['top_cat_samples'])
         cat_phrase = f", such as '{data['top_cat_samples'][0]}'" if data['top_cat_samples'] else ""
         insights.append({
             "competitor_id": comp_id, "type": "category_dominance", "title": "Category Concentration Risk",
@@ -813,7 +816,7 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 vuln_factors.append(f"Inconsistent pricing (CoV {data['cov']}) - confuses customers and erodes trust")
             if data['promo_pct'] < 5:
                 vuln_factors.append(f"Zero promotional flexibility ({data['promo_pct']}%) - can't respond to market pressure")
-            if len(data.get('largest_gap_size', 0)) > 0:
+            if data.get('largest_gap_size', 0) > 0:
                 vuln_factors.append(f"Price gaps (${data['largest_gap_size']} uncovered) - unmonetized segments")
             
             insights.append({
@@ -893,20 +896,32 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 "severity": "medium", "created_at": timestamp
             })
 
-            # 13. Cross-Reference Analysis (PRO ONLY)
+            # 13. Cross-Reference Analysis (PRO ONLY) - FIXED BACKSLASH ERROR
+            if data['top_cat_pct'] > 20:
+                cross_rec = (
+                    f"Exploit the intersection: launch a premium product inside the ${data['largest_gap_size']} "
+                    f"price gap, specifically targeting the '{data['top_cat']}' category where they are most "
+                    f"concentrated ({data['top_cat_pct']}% of catalog) but least diversified. This attacks their "
+                    f"core revenue stream at its weakest, uncovered price band."
+                )
+            else:
+                cross_rec = (
+                    "Build a differentiated brand story that emphasizes your category diversity versus their "
+                    "concentration risk. Use content marketing to position yourself as the versatile, "
+                    "customer-centric alternative."
+                )
+
             insights.append({
                 "competitor_id": comp_id, "type": "cross_reference", "title": "Cross-Reference Strategic Analysis",
                 "summary": (
-                    f"Connecting the dots: This competitor's {data['hhi_interp']} catalog (HHI {data['hhi_score']}) "
+                    f"Connecting the dots: this competitor's {data['hhi_interp']} catalog (HHI {data['hhi_score']}) "
                     f"combined with {data['cov_interp']} pricing (CoV {data['cov']}) creates a "
                     f"{'vulnerable' if data['vulnerability_score'] > 50 else 'stable'} strategic position. "
-                    f"Their ${data['largest_gap_size']} price gap in the "
-                    f"'{data['top_cat']}' category (which represents {data['top_cat_pct']}% of their catalog) "
-                    f"presents a {'high-impact' if data['top_cat_pct'] > 20 else 'moderate-impact'} opportunity."
+                    f"Their ${data['largest_gap_size']} price gap sits inside the '{data['top_cat']}' category "
+                    f"({data['top_cat_pct']}% of their catalog), which turns it into a "
+                    f"{'high-impact' if data['top_cat_pct'] > 20 else 'moderate-impact'} opportunity."
                 ),
-                "ai_recommendation": (
-                    f"{'Exploit the intersection: Launch a premium product in the ${data[\"largest_gap_size\"]} gap, ' + 'specifically targeting the ' + data['top_cat'] + ' category where they are most concentrated but least diversified.' if data['top_cat_pct'] > 20 else 'Build a differentiated brand story that emphasizes your category diversity versus their concentration risk. Use content marketing to position yourself as the versatile, customer-centric alternative.'}"
-                ),
+                "ai_recommendation": cross_rec,
                 "severity": "high", "created_at": timestamp
             })
 
