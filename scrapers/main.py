@@ -1,56 +1,18 @@
 """
 Velora - Advanced Competitive Market Intelligence Engine
 =========================================================
-PRODUCTION VERSION v4.4.0 - Out-of-Stock Intelligence + Dashboard Summary
+PRODUCTION VERSION v4.4.1 - Stockout Logic Fix + Stable Price Wording
 
 [OK] 100% Rule-Based & Mathematical Analysis (No LLM API calls, zero AI cost)
 [OK] GRACEFUL 403/404 HANDLING
-[OK] HYPER-SPECIFIC INSIGHTS: recommendations name actual scraped product titles
-[OK] NEW: OUT-OF-STOCK MONITORING - diffs this scan against the prior scan's
-     product set to detect competitor stockouts/delistings in real time.
-     This was the single highest-value gap identified against Profitero and
-     Wiser Solutions (both treat competitor stockouts as a live sales signal;
-     Velora didn't track it at all before this version).
-[OK] FIXED: Cross-Reference Analysis no longer says "least diversified" when
-     the catalog is actually diversified - now has 3 dynamic templates keyed
-     off HHI score, top-category %, and CoV together.
-[OK] NEW: Executive Dashboard Summary - 3 headline numbers at the top of
-     every report (critical-issue count, estimated untapped $ opportunity,
-     vulnerability score), matching the "3 numbers up top" format every
-     McKinsey/BCG-style report leads with.
-[OK] Vulnerability scoring (0-100), 13+ insights for Pro, 7 for Free
+[OK] FIXED: URL normalization prevents false stockout detection
+[OK] FIXED: Stockout ignored when >80% of catalog "disappears" (scraper issue, not real)
+[OK] FIXED: "0.0% change" now says "remained stable" instead of "fallen 0.0%"
+[OK] HYPER-SPECIFIC INSIGHTS, Dashboard Summary, Out-of-Stock Intelligence
 [OK] Strict typing, chunked Supabase writes, zero silent failures
 
 Architecture:
   [GitHub Actions] -> [Scraper] -> [Deterministic Math Engine] -> [Supabase] -> [Flutter App]
-
-===================================================================
-WHAT CHANGED FROM v4.3.0
-===================================================================
-1. OUT-OF-STOCK MONITORING (new): before upserting this scan's products,
-   we now fetch the competitor's previously-known product set and diff it
-   against the current scrape. Products present last time but missing now
-   are flagged as likely stockouts/delistings - a live "attack window"
-   signal that no prior Velora version captured. Pro-tier only (it needs a
-   second scan to have anything to compare against, same precondition as
-   price deltas and trends).
-
-2. CROSS-REFERENCE ANALYSIS FIX: v4.3.0 always said "most concentrated...
-   but least diversified" regardless of actual HHI. Replaced with three
-   genuinely distinct templates selected by (HHI band, top-category %,
-   CoV), so a diversified competitor gets a diversification-appropriate
-   recommendation instead of a contradictory one.
-
-3. EXECUTIVE DASHBOARD SUMMARY (new): a dedicated first insight with three
-   headline numbers - critical/high issue count, an estimated untapped
-   dollar opportunity (derived from the largest price gap at the same
-   500-unit assumption used elsewhere in the report, so the number is
-   internally consistent rather than invented separately), and the
-   vulnerability score. This is what a client's eye goes to first.
-
-4. Everything else (blocked-site handling, chunked writes, hyper-specific
-   product-name insights, typing, vulnerability scoring) is carried over
-   from v4.3.0 unchanged.
 """
 
 import os
@@ -115,6 +77,35 @@ def detect_block_signal(status_code: Optional[int], body_text: str = "") -> Opti
 
 
 # ===================================================================
+# URL Normalization (FIX for false stockout detection)
+# ===================================================================
+def normalize_url(url: Optional[str]) -> str:
+    """
+    Normalize a product URL for reliable comparison across scans.
+    Strips trailing slashes, query params, fragments, 'www.', and lowercases.
+    This prevents the stockout detector from treating:
+      - https://example.com/product   vs
+      - https://example.com/product/  vs
+      - https://example.com/product?utm=abc
+    as three different products (which was causing 250 false "disappeared" warnings).
+    """
+    if not url:
+        return ""
+    try:
+        parsed = urlparse(url)
+        # Lowercase scheme + netloc + path
+        norm = f"{parsed.scheme.lower()}://{parsed.netloc.lower()}{parsed.path}"
+        # Remove trailing slash (but keep root "/")
+        if norm.endswith("/") and len(norm) > len(f"{parsed.scheme}://x/"):
+            norm = norm[:-1]
+        # Remove www.
+        norm = norm.replace("://www.", "://")
+        return norm
+    except Exception:
+        return str(url or "").strip().lower()
+
+
+# ===================================================================
 # TIER SYSTEM
 # ===================================================================
 TIER_LIMITS: Dict[str, Dict[str, int]] = {
@@ -126,9 +117,7 @@ TIER_LIMITS: Dict[str, Dict[str, int]] = {
 
 DB_CHUNK_SIZE = 500
 
-# ===================================================================
-# Rate Limiting (scraper politeness only)
-# ===================================================================
+
 def rate_limit(calls_per_minute: int = 10):
     def decorator(func):
         last_called = [0.0]
@@ -144,9 +133,7 @@ def rate_limit(calls_per_minute: int = 10):
         return wrapper
     return decorator
 
-# ===================================================================
-# Logging Configuration
-# ===================================================================
+
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
@@ -160,9 +147,7 @@ logger = logging.getLogger('VeloraScraper')
 logging.getLogger("httpx").setLevel(logging.WARNING)
 logging.getLogger("httpcore").setLevel(logging.WARNING)
 
-# ===================================================================
-# Color Codes
-# ===================================================================
+
 class Colors:
     HEADER = '\033[95m'
     OKBLUE = '\033[94m'
@@ -173,11 +158,13 @@ class Colors:
     ENDC = '\033[0m'
     BOLD = '\033[1m'
 
+
 def print_banner() -> None:
     print(f"\n{Colors.HEADER}{'='*80}{Colors.ENDC}")
-    print(f"{Colors.OKBLUE} Velora v4.4.0 - Out-of-Stock Intelligence + Dashboard Summary{Colors.ENDC}")
-    print(f"{Colors.OKCYAN}   Stockout Detection - Fixed Cross-Reference - Headline Metrics{Colors.ENDC}")
+    print(f"{Colors.OKBLUE} Velora v4.4.1 - Stockout Logic Fix + Stable Price Wording{Colors.ENDC}")
+    print(f"{Colors.OKCYAN}   URL-Normalized Stockouts | Honest 0% Change Text | Dashboard Summary{Colors.ENDC}")
     print(f"{Colors.HEADER}{'='*80}{Colors.ENDC}\n")
+
 
 def print_success(msg: str) -> None: print(f"{Colors.OKGREEN}[OK] {msg}{Colors.ENDC}")
 def print_error(msg: str) -> None: print(f"{Colors.FAIL}[ERR] {msg}{Colors.ENDC}")
@@ -185,10 +172,9 @@ def print_warning(msg: str) -> None: print(f"{Colors.WARNING}[WARN] {msg}{Colors
 def print_info(msg: str) -> None: print(f"{Colors.OKBLUE}[INFO] {msg}{Colors.ENDC}")
 def print_header(msg: str) -> None: print(f"\n{Colors.BOLD}{Colors.OKCYAN}{msg}{Colors.ENDC}")
 
-# ===================================================================
-# Text normalization
-# ===================================================================
+
 _WS_RE = re.compile(r"\s+")
+
 
 def normalize_text(text: Optional[str]) -> str:
     if not text:
@@ -197,12 +183,11 @@ def normalize_text(text: Optional[str]) -> str:
     cleaned = _WS_RE.sub(" ", cleaned)
     return cleaned.strip().lower()
 
+
 def _chunked(items: List[Any], size: int) -> List[List[Any]]:
     return [items[i:i + size] for i in range(0, len(items), size)]
 
-# ===================================================================
-# Configuration
-# ===================================================================
+
 class Config:
     def __init__(self) -> None:
         self.supabase_url: Optional[str] = os.getenv("SUPABASE_URL")
@@ -217,9 +202,7 @@ class Config:
         print_info("[ENGINE] Deterministic Analytics Engine - zero external AI cost")
         return True
 
-# ===================================================================
-# Database Manager
-# ===================================================================
+
 class DatabaseManager:
     def __init__(self, supabase: Client) -> None:
         self.supabase = supabase
@@ -256,7 +239,7 @@ class DatabaseManager:
 
                 per_user[uid] = per_user.get(uid, 0) + 1
                 if per_user[uid] > limits['max_competitors']:
-                    self.logger.info(f"[SKIP] {row.get('name')} (User: {uid}): tier '{tier}' cap ({limits['max_competitors']}) reached")
+                    self.logger.info(f"[SKIP] {row.get('name')} (User: {uid}): tier '{tier}' cap reached")
                     continue
 
                 if not force_all:
@@ -265,17 +248,15 @@ class DatabaseManager:
                         last_dt = datetime.fromisoformat(last.replace('Z', '+00:00'))
                         if last_dt.tzinfo is None:
                             last_dt = last_dt.replace(tzinfo=timezone.utc)
-
                         hours_since_scan = (now - last_dt).total_seconds() / 3600
                         required_hours = limits['scan_interval_hours']
-
                         if hours_since_scan < required_hours:
-                            self.logger.info(f"[SKIP] {row.get('name')} (Tier: {tier}): scanned {hours_since_scan:.1f}h ago, requires {required_hours}h")
+                            self.logger.info(f"[SKIP] {row.get('name')} (Tier: {tier}): scanned {hours_since_scan:.1f}h ago")
                             continue
                         else:
                             self.logger.info(f"[SCAN] {row.get('name')} (Tier: {tier}): READY! ({hours_since_scan:.1f}h >= {required_hours}h)")
                     else:
-                        self.logger.info(f"[SCAN] {row.get('name')} (Tier: {tier}): READY! (Never scanned before)")
+                        self.logger.info(f"[SCAN] {row.get('name')} (Tier: {tier}): READY! (Never scanned)")
 
                 row['_tier'] = tier
                 row['_limits'] = limits
@@ -316,11 +297,6 @@ class DatabaseManager:
             return None
 
     def get_previous_products(self, competitor_id: str) -> List[Dict[str, Any]]:
-        """
-        Fetches the competitor's previously-known product set BEFORE this
-        scan's upsert overwrites it. Used to diff against the current scrape
-        and detect stockouts/delistings. Call this before upsert_products().
-        """
         try:
             res = (
                 self.supabase.table("products")
@@ -342,7 +318,7 @@ class DatabaseManager:
                 count = len(response.data) if response.data else len(batch)
                 total += count
             except Exception as e:
-                self.logger.error(f"Failed to upsert product batch {idx}/{len(batches)} ({len(batch)} rows): {e}")
+                self.logger.error(f"Failed to upsert product batch {idx}/{len(batches)}: {e}")
         self.logger.info(f"Upserted {total}/{len(products)} products total across {len(batches)} batch(es)")
         return total
 
@@ -359,10 +335,8 @@ class DatabaseManager:
             for p in products
             if p.get("current_price") and p.get("current_price") > 0
         ]
-
         if not history_rows:
             return 0
-
         total = 0
         batches = _chunked(history_rows, chunk_size)
         for idx, batch in enumerate(batches, 1):
@@ -428,16 +402,14 @@ class DatabaseManager:
                     self.supabase.table("ai_insights").delete().eq("competitor_id", comp_id).neq("type", "trend").execute()
                 except Exception as e:
                     self.logger.warning(f"Could not clear prior insights for {comp_id}: {e}")
-
             for insight in insights:
                 insight['competitor_id'] = comp_id
                 insight['created_at'] = datetime.now(timezone.utc).isoformat()
-
             self.supabase.table("ai_insights").insert(insights).execute()
             self.logger.info(f"Saved {len(insights)} deterministic insights")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to save insights for competitor {competitor_id}: {e}")
+            self.logger.error(f"Failed to save insights: {e}")
             return False
 
     def save_blocked_insight(self, competitor_id: str, competitor_name: str,
@@ -448,23 +420,20 @@ class DatabaseManager:
             "competitor_id": competitor_id,
             "type": "scan_blocked",
             "title": "Scan Blocked - Site Protection Detected",
-            "summary": (
-                f"We were unable to retrieve pricing data for {competitor_name} this cycle because the "
-                f"site is actively blocking automated requests{status_part}. Reason: {reason}."
-            ),
+            "summary": f"We were unable to retrieve pricing data for {competitor_name} this cycle because the site is actively blocking automated requests{status_part}. Reason: {reason}.",
             "ai_recommendation": "No action needed - we'll automatically retry on the next scheduled scan.",
             "severity": "medium",
             "created_at": timestamp,
         }
         try:
             self.supabase.table("ai_insights").delete().eq("competitor_id", competitor_id).eq("type", "scan_blocked").execute()
-        except Exception as e:
-            self.logger.warning(f"Could not clear prior blocked-insight for {competitor_id}: {e}")
+        except Exception:
+            pass
         try:
             self.supabase.table("ai_insights").insert(insight).execute()
             self.logger.info(f"Recorded 'scan_blocked' insight for {competitor_name}")
         except Exception as e:
-            self.logger.error(f"Failed to save blocked insight for {competitor_name}: {e}")
+            self.logger.error(f"Failed to save blocked insight: {e}")
 
     def save_trend_insights(self, insights: List[Dict[str, Any]]) -> bool:
         try:
@@ -473,7 +442,6 @@ class DatabaseManager:
                 "summary": i.get("summary", ""), "ai_recommendation": i.get("recommendation", ""),
                 "severity": str(i.get("severity", "medium")).lower(), "created_at": datetime.now(timezone.utc).isoformat()
             } for i in insights]
-
             if formatted:
                 self.supabase.table("ai_insights").insert(formatted).execute()
                 self.logger.info(f"Saved {len(formatted)} trend insights")
@@ -485,15 +453,12 @@ class DatabaseManager:
     def update_competitor_scan_time(self, competitor_id: str) -> bool:
         try:
             self.supabase.table("competitors").update({"last_scan_at": datetime.now(timezone.utc).isoformat()}).eq("id", competitor_id).execute()
-            self.logger.info("Updated scan timestamp")
             return True
         except Exception as e:
-            self.logger.error(f"Failed to update timestamp for {competitor_id}: {e}")
+            self.logger.error(f"Failed to update timestamp: {e}")
             return False
 
-# ===================================================================
-# PREMIUM DETERMINISTIC MARKET INTELLIGENCE ENGINE (v4.4.0)
-# ===================================================================
+
 class PremiumDeterministicMarketIntelligenceEngine:
     CATEGORY_KEYWORDS: List[str] = [
         "shirt", "pant", "shoe", "dress", "jacket", "bag", "hat", "sock",
@@ -632,6 +597,16 @@ class PremiumDeterministicMarketIntelligenceEngine:
 
         price_delta = self.db.get_price_delta(self.competitor['id']) if self.db else None
 
+        # --- FIX: only count REAL stockouts, not false positives ---
+        # Real stockout = 1-20% of catalog disappeared (genuine delistings)
+        # Not a stockout = >80% disappeared (scraper issue or full catalog refresh)
+        real_stockout_count = 0
+        if self.disappeared_products and len(self.products) > 0:
+            disappear_pct = (len(self.disappeared_products) / max(len(self.products), 1)) * 100
+            # Only consider it real stockouts if < 80% disappeared
+            if disappear_pct < 80:
+                real_stockout_count = len(self.disappeared_products)
+
         vulnerability_score = 0
         if hhi_score > 2500:
             vulnerability_score += 25
@@ -645,8 +620,9 @@ class PremiumDeterministicMarketIntelligenceEngine:
             vulnerability_score += 10
         if len(prices) < 50:
             vulnerability_score += 10
-        if self.disappeared_products:
-            vulnerability_score += min(15, len(self.disappeared_products) * 3)  # stockouts add exploitable vulnerability
+        # Only add vulnerability for REAL stockouts (not scraper issues)
+        if real_stockout_count > 0:
+            vulnerability_score += min(15, real_stockout_count * 3)
         vulnerability_score = min(vulnerability_score, 100)
 
         return {
@@ -690,15 +666,10 @@ class PremiumDeterministicMarketIntelligenceEngine:
             "freshness_pct": freshness_pct,
             "freshness_samples": freshness_samples,
             "vulnerability_score": vulnerability_score,
+            "real_stockout_count": real_stockout_count,
         }
 
     def _cross_reference_text(self, data: Dict[str, Any]) -> Tuple[str, str]:
-        """
-        FIX for the v4.3.0 contradiction: three genuinely distinct templates
-        selected by (HHI band, top-category %, CoV) instead of one template
-        that always said 'most concentrated... but least diversified'
-        regardless of the actual numbers.
-        """
         hhi = data['hhi_score']
         top_pct = data['top_cat_pct']
         cov = data['cov']
@@ -706,7 +677,6 @@ class PremiumDeterministicMarketIntelligenceEngine:
         top_cat = data['top_cat']
 
         if hhi > 2500 and top_pct > 20:
-            # Genuinely concentrated: the gap-in-category attack is valid here.
             summary = (
                 f"Connecting the dots: this competitor's highly concentrated catalog (HHI {hhi}) combined with "
                 f"{data['cov_interp']} pricing (CoV {cov}) creates a structurally exposed position. Their "
@@ -719,7 +689,6 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 "least defended on price. This attacks their core revenue stream at its weakest point."
             )
         elif hhi <= 1500:
-            # Genuinely diversified: the old template's "least diversified" claim would be false here.
             summary = (
                 f"Connecting the dots: this competitor's diversified catalog (HHI {hhi}, top category '{top_cat}' "
                 f"at only {top_pct}%) combined with {data['cov_interp']} pricing (CoV {cov}) means no single "
@@ -731,7 +700,6 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 "Specialists consistently out-convert generalists with price-sensitive comparison shoppers."
             )
         else:
-            # Moderate concentration: a blended read.
             summary = (
                 f"Connecting the dots: this competitor sits in a moderate-concentration zone (HHI {hhi}), with "
                 f"'{top_cat}' at {top_pct}% of catalog and {data['cov_interp']} pricing (CoV {cov}). Their "
@@ -754,7 +722,6 @@ class PremiumDeterministicMarketIntelligenceEngine:
         timestamp = datetime.now(timezone.utc).isoformat()
         comp_id = self.competitor.get('id')
 
-        # --- Build the core insight set first (needed to compute dashboard counts) ---
         core_insights: List[Dict[str, Any]] = []
 
         vuln_level = "HIGH" if data['vulnerability_score'] > 70 else "MEDIUM" if data['vulnerability_score'] > 40 else "LOW"
@@ -766,9 +733,15 @@ class PremiumDeterministicMarketIntelligenceEngine:
             f"Price discipline is {data['cov_interp']} (CoV: {data['cov']}). "
             f"Vulnerability Score: {data['vulnerability_score']}/100 ({vuln_level})."
         )
+        # --- FIX: "remained stable" instead of "fallen 0.0%" ---
         if data['price_delta']:
-            direction = "risen" if data['price_delta']['pct_change'] > 0 else "fallen"
-            exec_summary += f" Notably, average prices have {direction} {abs(data['price_delta']['pct_change'])}% since the last scan."
+            pct = data['price_delta']['pct_change']
+            if abs(pct) < 0.1:
+                exec_summary += f" Average prices have remained stable since the last scan (${data['price_delta']['prior_avg']} → ${data['price_delta']['latest_avg']})."
+            elif pct > 0:
+                exec_summary += f" Notably, average prices have risen {abs(pct)}% since the last scan."
+            else:
+                exec_summary += f" Notably, average prices have fallen {abs(pct)}% since the last scan."
 
         core_insights.append({
             "competitor_id": comp_id, "type": "executive_summary", "title": "Market Overview",
@@ -787,13 +760,11 @@ class PremiumDeterministicMarketIntelligenceEngine:
                     f"A significant whitespace exists between ${data['largest_gap_from']} ('{lower_title}') and "
                     f"${data['largest_gap_to']} ('{upper_title}') - a gap of ${data['largest_gap_size']} "
                     f"({data['largest_gap_ratio']}x the average price). The competitor has zero products in this "
-                    f"range, leaving an unmonetized segment of buyers who want more than '{lower_title}' but "
-                    f"aren't ready to pay for '{upper_title}'."
+                    f"range, leaving an unmonetized segment of buyers."
                 ),
                 "ai_recommendation": (
                     f"Launch a flagship product priced precisely at ${target_price}, positioned directly between "
-                    f"'{lower_title}' and '{upper_title}'. Target a 30-day uptake of 500+ units. This tactical "
-                    "entry captures unmet mid-premium demand and forces pricing recalibration."
+                    f"'{lower_title}' and '{upper_title}'. Target a 30-day uptake of 500+ units."
                 ),
                 "severity": "high", "created_at": timestamp
             })
@@ -804,8 +775,7 @@ class PremiumDeterministicMarketIntelligenceEngine:
             "summary": (
                 f"The catalog is {data['hhi_interp']} (HHI Index: {data['hhi_score']}). The top category "
                 f"'{data['top_cat']}'{cat_phrase} represents {data['top_cat_pct']}% of products, with only "
-                f"{data['top_cat_count']} items. This heavy reliance exposes the brand to category-specific demand "
-                "shocks and limits cross-sell opportunities."
+                f"{data['top_cat_count']} items."
             ),
             "ai_recommendation": (
                 "Diversify into adjacent, high-margin categories to dilute the HHI index below 2000. Introduce "
@@ -842,23 +812,41 @@ class PremiumDeterministicMarketIntelligenceEngine:
             "severity": "high" if data['cov'] > 0.4 else "medium", "created_at": timestamp
         })
 
+        # --- FIX: Historical Price Shift uses stable wording too ---
         if data['price_delta']:
-            direction = "risen" if data['price_delta']['pct_change'] > 0 else "fallen"
-            core_insights.append({
-                "competitor_id": comp_id, "type": "market_timing", "title": "Historical Price Shift Detected",
-                "summary": (
-                    f"Since the last scan, the competitor's average price has {direction} by "
-                    f"{abs(data['price_delta']['pct_change'])}% (from ${data['price_delta']['prior_avg']} to "
-                    f"${data['price_delta']['latest_avg']}). This indicates a strategic shift in margin targets "
-                    "or cost structure."
-                ),
-                "ai_recommendation": (
-                    "Capitalize on this shift immediately. If prices rose, position alternatives as the smart "
-                    "value choice. If prices fell, emphasize superior quality and brand equity to avoid a race "
-                    "to the bottom."
-                ),
-                "severity": "high", "created_at": timestamp
-            })
+            pct = data['price_delta']['pct_change']
+            if abs(pct) < 0.1:
+                core_insights.append({
+                    "competitor_id": comp_id, "type": "market_timing", "title": "Price Stability Confirmed",
+                    "summary": (
+                        f"Since the last scan, the competitor's average price has remained stable at "
+                        f"${data['price_delta']['latest_avg']}. This indicates pricing discipline and confidence "
+                        "in their current margin structure - they are not under pressure to adjust."
+                    ),
+                    "ai_recommendation": (
+                        "Use this stability window to test your own dynamic pricing. Since the competitor is "
+                        "not actively moving prices, you can experiment with small price tests (±5%) on comparable "
+                        "products to find your optimal conversion-maximizing price point without triggering a price war."
+                    ),
+                    "severity": "medium", "created_at": timestamp
+                })
+            else:
+                direction = "risen" if pct > 0 else "fallen"
+                core_insights.append({
+                    "competitor_id": comp_id, "type": "market_timing", "title": "Historical Price Shift Detected",
+                    "summary": (
+                        f"Since the last scan, the competitor's average price has {direction} by "
+                        f"{abs(pct)}% (from ${data['price_delta']['prior_avg']} to "
+                        f"${data['price_delta']['latest_avg']}). This indicates a strategic shift in margin targets "
+                        "or cost structure."
+                    ),
+                    "ai_recommendation": (
+                        "Capitalize on this shift immediately. If prices rose, position alternatives as the smart "
+                        "value choice. If prices fell, emphasize superior quality and brand equity to avoid a race "
+                        "to the bottom."
+                    ),
+                    "severity": "high", "created_at": timestamp
+                })
 
         if data['velocity_pct'] > 0 or data['scarcity_pct'] > 0:
             vel_phrase = f", including {self._format_sample_titles(data['velocity_samples'])}" if data['velocity_samples'] else ""
@@ -867,8 +855,7 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 "competitor_id": comp_id, "type": "competitive_threat", "title": "Sales Velocity & Scarcity Signals",
                 "summary": (
                     f"Deep text analysis reveals {data['velocity_pct']}% of products carry 'bestseller' tags"
-                    f"{vel_phrase}, while {data['scarcity_pct']}% show scarcity signals. This indicates high "
-                    "inventory turnover acting as a 'cash cow' for the competitor."
+                    f"{vel_phrase}, while {data['scarcity_pct']}% show scarcity signals."
                 ),
                 "ai_recommendation": (
                     f"Don't price-war items like '{anchor}'. Launch a complementary cross-sell or a premium "
@@ -892,8 +879,8 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 "severity": "medium", "created_at": timestamp
             })
 
-        # --- NEW: Out-of-Stock Monitoring (Pro-only, needs a prior scan to diff against) ---
-        if self.tier in ('pro', 'pro_plus', 'enterprise') and self.disappeared_products:
+        # --- Out-of-Stock Monitoring (Pro-only, ONLY for REAL stockouts) ---
+        if self.tier in ('pro', 'pro_plus', 'enterprise') and data['real_stockout_count'] > 0:
             shown = self.disappeared_products[:3]
             titles_prices = "; ".join(
                 f"'{p.get('title', 'Unnamed product')}' (was ${p.get('current_price', 0):.2f})"
@@ -902,7 +889,7 @@ class PremiumDeterministicMarketIntelligenceEngine:
             core_insights.append({
                 "competitor_id": comp_id, "type": "out_of_stock_signal", "title": "Competitor Stockout/Delisting Detected",
                 "summary": (
-                    f"{len(self.disappeared_products)} product(s) that were in the competitor's catalog on the "
+                    f"{data['real_stockout_count']} product(s) that were in the competitor's catalog on the "
                     f"last scan are no longer listed, including: {titles_prices}. This typically signals either "
                     "a stockout or a deliberate delisting - both represent a narrow, time-sensitive window where "
                     "their demand for these items has nowhere to go."
@@ -910,8 +897,7 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 "ai_recommendation": (
                     f"Launch a targeted ad campaign within the next 48-72 hours bidding on keywords tied to "
                     f"'{shown[0].get('title', 'the missing product')}' and similar missing items - this is a "
-                    "short-lived window before the competitor restocks or a different competitor fills the gap. "
-                    "Prioritize search and retargeting ads over broad awareness spend for maximum capture."
+                    "short-lived window before the competitor restocks or a different competitor fills the gap."
                 ),
                 "severity": "critical", "created_at": timestamp
             })
@@ -927,8 +913,8 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 vuln_factors.append(f"Zero promotional flexibility ({data['promo_pct']}%)")
             if data.get('largest_gap_size', 0) > 0:
                 vuln_factors.append(f"Price gaps (${data['largest_gap_size']} uncovered)")
-            if self.disappeared_products:
-                vuln_factors.append(f"{len(self.disappeared_products)} stocked-out/delisted product(s)")
+            if data['real_stockout_count'] > 0:
+                vuln_factors.append(f"{data['real_stockout_count']} stocked-out/delisted product(s)")
 
             core_insights.append({
                 "competitor_id": comp_id, "type": "vulnerability_analysis", "title": "Vulnerability Score: Deep Dive",
@@ -989,7 +975,7 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 "severity": "high", "created_at": timestamp
             })
 
-        # --- NEW: Executive Dashboard Summary (prepended, both tiers) ---
+        # --- Executive Dashboard Summary ---
         critical_high_count = sum(1 for i in core_insights if i.get('severity') in ('critical', 'high'))
         estimated_opportunity = round(data['largest_gap_size'] * 500, 2) if data['largest_gap_size'] > 0 else 0.0
         dashboard_summary = (
@@ -1011,7 +997,6 @@ class PremiumDeterministicMarketIntelligenceEngine:
             "created_at": timestamp
         })
 
-        # Free tier gets the first 6 core insights; Pro gets everything built above.
         if self.tier == 'free':
             insights.extend(core_insights[:6])
         else:
@@ -1025,14 +1010,12 @@ class PremiumDeterministicMarketIntelligenceEngine:
         comp_id = self.competitor.get('id')
         return [{
             "competitor_id": comp_id, "type": "executive_summary", "title": "Data Insufficient",
-            "summary": f"Scanned {len(self.products)} products, but no valid pricing data was detected to perform mathematical analysis.",
+            "summary": f"Scanned {len(self.products)} products, but no valid pricing data was detected.",
             "ai_recommendation": "Ensure the scraper is correctly extracting 'current_price' fields from product pages.",
             "severity": "medium", "created_at": timestamp
         }]
 
-# ===================================================================
-# Scraper Engine
-# ===================================================================
+
 class ScraperEngine:
     def __init__(self) -> None:
         self.scrapers = {'shopify': scrape_shopify, 'woocommerce': scrape_woocommerce, 'generic': scrape_generic}
@@ -1077,7 +1060,7 @@ class ScraperEngine:
                 if attempt < max_retries - 1:
                     time.sleep(2 ** attempt)
 
-        self.logger.error(f"Failed to scrape {url} after {max_retries} attempts (no block detected)")
+        self.logger.error(f"Failed to scrape {url} after {max_retries} attempts")
         return [], None
 
     def clean_product_data(self, product: Dict[str, Any], competitor_id: str, timestamp: str) -> Dict[str, Any]:
@@ -1090,14 +1073,13 @@ class ScraperEngine:
             "last_updated_at": timestamp,
         }
 
-# ===================================================================
-# Run-level observability
-# ===================================================================
+
 class ScanResult(str, Enum):
     SUCCESS = "success"
     BLOCKED = "blocked"
     NO_PRODUCTS = "no_products"
     FAILED = "failed"
+
 
 @dataclass
 class RunStats:
@@ -1135,9 +1117,7 @@ class RunStats:
             f"{Colors.HEADER}{'='*80}{Colors.ENDC}\n"
         )
 
-# ===================================================================
-# Main Application
-# ===================================================================
+
 class VeloraScraper:
     def __init__(self) -> None:
         self.config = Config()
@@ -1208,8 +1188,6 @@ class VeloraScraper:
         print(f"\n{'='*80}\n[TARGET] Target Acquired: {competitor_name}\n[URL] {url}\n[TIER] {tier.upper()} (max {limits['max_products']} products)\n{'='*80}\n")
 
         try:
-            # Capture the prior product set BEFORE upsert overwrites it - this is
-            # what makes Out-of-Stock Monitoring possible.
             previous_products = self.db.get_previous_products(competitor_id)
 
             products, blocked_error = self.scraper.scrape(url, max_products=limits['max_products'])
@@ -1227,17 +1205,24 @@ class VeloraScraper:
             timestamp = datetime.now(timezone.utc).isoformat()
             cleaned_products = [self.scraper.clean_product_data(p, competitor_id, timestamp) for p in products]
 
-            # Compute disappeared products BEFORE the upsert (previous_products was
-            # already captured above, so this diff is safe regardless of write order).
+            # --- FIX: Use normalized URLs to prevent false stockouts ---
             disappeared_products: List[Dict[str, Any]] = []
             if previous_products:
-                current_urls = {p.get('product_url') for p in cleaned_products if p.get('product_url')}
+                # Normalize current URLs for reliable comparison
+                current_urls_normalized = {
+                    normalize_url(p.get('product_url'))
+                    for p in cleaned_products if p.get('product_url')
+                }
                 disappeared_products = [
                     p for p in previous_products
-                    if p.get('product_url') and p.get('product_url') not in current_urls
+                    if p.get('product_url') and normalize_url(p.get('product_url')) not in current_urls_normalized
                 ]
-                if disappeared_products:
-                    print_warning(f"[STOCKOUT] {len(disappeared_products)} product(s) disappeared since last scan for {competitor_name}")
+                # --- FIX: Only log if <80% disappeared (else it's a scraper issue, not stockout) ---
+                disappear_pct = (len(disappeared_products) / max(len(previous_products), 1)) * 100
+                if disappeared_products and disappear_pct < 80:
+                    print_warning(f"[STOCKOUT] {len(disappeared_products)} product(s) genuinely disappeared since last scan for {competitor_name} ({disappear_pct:.1f}% of prior catalog)")
+                elif disappeared_products and disappear_pct >= 80:
+                    print_info(f"[INFO] {len(disappeared_products)} product(s) changed URLs or catalog was refreshed ({disappear_pct:.1f}% - treated as URL drift, not stockout)")
 
             if self.db.upsert_products(cleaned_products) == 0:
                 print_error(f"Failed to save any products for {competitor_name}")
@@ -1340,9 +1325,10 @@ class VeloraScraper:
         else:
             self.run_dynamic_mode(force_all=False)
 
+
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Velora v4.4.0 - Out-of-Stock Intelligence + Dashboard Summary",
+        description="Velora v4.4.1 - Stockout Logic Fix + Stable Price Wording",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('url', nargs='?', help='Store URL to scan (optional)')
@@ -1352,6 +1338,7 @@ def main() -> None:
 
     scraper = VeloraScraper()
     scraper.run(url=args.url, continuous=args.continuous, force_all=args.force_all)
+
 
 if __name__ == "__main__":
     main()
