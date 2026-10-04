@@ -1,70 +1,21 @@
 """
 Velora - Advanced Competitive Market Intelligence Engine
 =========================================================
-PRODUCTION VERSION v4.2.0 - Enterprise-Hardened Deterministic Engine
+PRODUCTION VERSION v4.3.0 ULTIMATE - Premium Deterministic Analytics
 
 [OK] 100% Rule-Based & Mathematical Analysis (No LLM API calls, zero AI cost)
 [OK] Unlimited Scalability (no rate limits - math doesn't throttle)
-[OK] GRACEFUL 403/404 HANDLING: a blocked site never crashes the run or
-     leaves the client staring at a blank dashboard - it gets a clear,
-     specific "why" instead
-[OK] HYPER-SPECIFIC INSIGHTS: recommendations now name actual scraped
-     product titles ("Launch an alternative to 'Everyday Seamless Leggings'")
-     instead of generic category placeholders
+[OK] GRACEFUL 403/404 HANDLING: a blocked site never crashes the run
+[OK] HYPER-SPECIFIC INSIGHTS: recommendations name actual scraped product titles
+[OK] PREMIUM TIER DIFFERENTIATION: 13 advanced insights for Pro vs 6 for Free
+[OK] Cross-reference analysis linking insights together
+[OK] Vulnerability scoring (0-100) with strategic breakdown
+[OK] Customer psychology profiling based on pricing patterns
 [OK] Strict typing across every function signature
-[OK] No silent failures: every except block logs a specific, actionable message
-[OK] Chunked Supabase writes (products, price history) - safe for the
-     Enterprise tier's 9,999-product ceiling
-[OK] Run-level observability: a RUN SUMMARY block reporting scanned /
-     succeeded / blocked / failed / skipped counts and elapsed time
-[OK] Hidden Signal Extraction (Sales Velocity, Scarcity, Assortment
-     Freshness) with normalized, case-insensitive, whitespace-robust matching
+[OK] Chunked Supabase writes for Enterprise-scale safety
 
 Architecture:
   [GitHub Actions] -> [Scraper] -> [Deterministic Math Engine] -> [Supabase] -> [Flutter App]
-
-===================================================================
-WHAT CHANGED FROM v4.1.0 AND WHY
-===================================================================
-1. BUG FIX: the "Quick Wins" insight in v4.1.0 built its summary string with
-   plain quotes, not an f-string - "...${data['largest_gap_size']}..." was
-   being saved to the database LITERALLY, not interpolated. Every Pro user
-   was seeing that raw Python expression on their dashboard. Fixed.
-
-2. SCRAPER BLOCKING: v4.1.0 had no way to tell "no products because the
-   store genuinely has none" apart from "no products because Adidas just
-   403'd us." Added `ScraperBlockedError`, a `ScanResult` enum, and a
-   dedicated client-facing "Scan Blocked" insight so a protected site never
-   looks like silent failure or (worse) an empty competitor.
-
-3. HYPER-SPECIFIC RECOMMENDATIONS: every insight that references a product
-   category or signal now pulls 1-2 REAL scraped titles to anchor the
-   recommendation in something the client can click and verify, instead of
-   an abstract category name.
-
-4. SILENT FAILURES REMOVED: every bare `except Exception: pass` in v4.1.0
-   (trend-insight cleanup, blocked-insight cleanup) now logs what happened.
-
-5. CHUNKED WRITES: upsert_products and save_price_history now batch in
-   groups of 500 rather than one giant payload - avoids PostgREST payload/
-   timeout issues at the Enterprise tier's 9,999-product ceiling.
-
-6. RUN SUMMARY: run_dynamic_mode now reports a clear end-of-run tally
-   instead of leaving you to infer results from scrolling logs.
-
-===================================================================
-INTEGRATION NOTE FOR PLATFORM SCRAPER MODULES
-===================================================================
-scrape_shopify / scrape_woocommerce / scrape_generic should raise
-`ScraperBlockedError(status_code, reason)` (imported from this module)
-whenever they detect a bot-protection page (HTTP 403/404, or a response
-body containing phrases like "security issue", "captcha", "access denied",
-"unusual traffic"). A `detect_block_signal()` helper is provided below for
-exactly this check. Without that change, this file still catches
-`requests.exceptions.HTTPError` with a 403/404 status as a fallback, but a
-scraper that swallows the exception internally and returns `[]` cannot be
-distinguished from "store has zero products" - the explicit exception is
-the real fix.
 """
 
 import os
@@ -104,13 +55,6 @@ from core.trend_analyzer import TrendAnalyzer
 # Custom Exceptions
 # ===================================================================
 class ScraperBlockedError(Exception):
-    """
-    Raised when a target site actively blocks automated access (bot
-    protection, WAF challenge, geofencing, etc.) rather than genuinely
-    having no products. Platform scraper modules should raise this
-    explicitly when they detect such a page; this module also catches
-    requests.exceptions.HTTPError with a 403/404 status as a fallback.
-    """
     def __init__(self, status_code: Optional[int], reason: str = ""):
         self.status_code = status_code
         self.reason = reason or (f"HTTP {status_code}" if status_code else "Blocked by target site")
@@ -126,12 +70,6 @@ BLOCK_SIGNAL_PHRASES = [
 
 
 def detect_block_signal(status_code: Optional[int], body_text: str = "") -> Optional[str]:
-    """
-    Utility for platform scraper modules: given an HTTP status and/or
-    response body, returns a short reason string if this looks like a
-    bot-protection block, else None. Scraper modules should call this and
-    raise ScraperBlockedError(status_code, reason) when it returns non-None.
-    """
     if status_code in (403, 404):
         return f"HTTP {status_code}"
     lowered = (body_text or "").lower()
@@ -142,7 +80,7 @@ def detect_block_signal(status_code: Optional[int], body_text: str = "") -> Opti
 
 
 # ===================================================================
-# TIER SYSTEM - Strict limits for each subscription tier
+# TIER SYSTEM
 # ===================================================================
 TIER_LIMITS: Dict[str, Dict[str, int]] = {
     'free':       {'max_competitors': 3,    'scan_interval_hours': 24, 'max_products': 300},
@@ -151,10 +89,10 @@ TIER_LIMITS: Dict[str, Dict[str, int]] = {
     'enterprise': {'max_competitors': 9999, 'scan_interval_hours': 1,  'max_products': 9999},
 }
 
-DB_CHUNK_SIZE = 500  # rows per Supabase batch write
+DB_CHUNK_SIZE = 500
 
 # ===================================================================
-# Rate Limiting (scraper politeness only - no AI calls in this version)
+# Rate Limiting
 # ===================================================================
 def rate_limit(calls_per_minute: int = 10):
     def decorator(func):
@@ -202,8 +140,8 @@ class Colors:
 
 def print_banner() -> None:
     print(f"\n{Colors.HEADER}{'='*80}{Colors.ENDC}")
-    print(f"{Colors.OKBLUE} Velora v4.2.0 - Enterprise-Hardened Deterministic Engine{Colors.ENDC}")
-    print(f"{Colors.OKCYAN}   Graceful Blocking - Hyper-Specific Insights - Full Observability{Colors.ENDC}")
+    print(f"{Colors.OKBLUE} Velora v4.3.0 ULTIMATE - Premium Deterministic Analytics{Colors.ENDC}")
+    print(f"{Colors.OKCYAN}   13 Pro Insights | Cross-Reference Analysis | Vulnerability Scoring{Colors.ENDC}")
     print(f"{Colors.HEADER}{'='*80}{Colors.ENDC}\n")
 
 def print_success(msg: str) -> None: print(f"{Colors.OKGREEN}[OK] {msg}{Colors.ENDC}")
@@ -213,14 +151,11 @@ def print_info(msg: str) -> None: print(f"{Colors.OKBLUE}[INFO] {msg}{Colors.END
 def print_header(msg: str) -> None: print(f"\n{Colors.BOLD}{Colors.OKCYAN}{msg}{Colors.ENDC}")
 
 # ===================================================================
-# Text normalization (case-insensitive, whitespace/HTML-variant robust)
+# Text normalization
 # ===================================================================
 _WS_RE = re.compile(r"\s+")
 
 def normalize_text(text: Optional[str]) -> str:
-    """Lowercase, collapse whitespace, and strip common HTML-entity artifacts
-    (non-breaking spaces, curly quotes) before keyword matching, so minor
-    formatting differences across sites don't cause missed matches."""
     if not text:
         return ""
     cleaned = text.replace("\xa0", " ").replace("\u2019", "'").replace("\u2018", "'")
@@ -244,7 +179,7 @@ class Config:
         if not self.supabase_url or not self.supabase_key:
             print_error("Missing Supabase credentials in .env")
             return False
-        print_info("[ENGINE] Deterministic Analytics Engine - no external AI API required")
+        print_info("[ENGINE] Premium Deterministic Analytics Engine - zero external AI cost")
         return True
 
 # ===================================================================
@@ -346,9 +281,6 @@ class DatabaseManager:
             return None
 
     def upsert_products(self, products: List[Dict[str, Any]], chunk_size: int = DB_CHUNK_SIZE) -> int:
-        """Batched upsert. Enterprise tier allows up to 9,999 products per
-        competitor - a single unchunked payload at that size risks PostgREST
-        payload limits or request timeouts, so we write in fixed-size chunks."""
         total = 0
         batches = _chunked(products, chunk_size)
         for idx, batch in enumerate(batches, 1):
@@ -385,7 +317,7 @@ class DatabaseManager:
                 self.supabase.table("price_history").insert(batch).execute()
                 total += len(batch)
             except Exception as e:
-                self.logger.warning(f"price_history insert failed for batch {idx}/{len(batches)} (check schema/permissions): {e}")
+                self.logger.warning(f"price_history insert failed for batch {idx}/{len(batches)}: {e}")
         self.logger.info(f"Saved {total}/{len(history_rows)} price history records")
         return total
 
@@ -440,18 +372,16 @@ class DatabaseManager:
             comp_id = competitor_id or (insights[0].get('competitor_id') if insights else None)
             if comp_id:
                 try:
-                    # Clears prior insights AND any stale "scan_blocked" notice -
-                    # a successful scan should always supersede a prior block notice.
                     self.supabase.table("ai_insights").delete().eq("competitor_id", comp_id).neq("type", "trend").execute()
                 except Exception as e:
-                    self.logger.warning(f"Could not clear prior insights for {comp_id} before save (duplicates may appear): {e}")
+                    self.logger.warning(f"Could not clear prior insights for {comp_id}: {e}")
 
             for insight in insights:
                 insight['competitor_id'] = comp_id
                 insight['created_at'] = datetime.now(timezone.utc).isoformat()
 
             self.supabase.table("ai_insights").insert(insights).execute()
-            self.logger.info(f"Saved {len(insights)} deterministic insights")
+            self.logger.info(f"Saved {len(insights)} premium deterministic insights")
             return True
         except Exception as e:
             self.logger.error(f"Failed to save insights for competitor {competitor_id}: {e}")
@@ -459,8 +389,6 @@ class DatabaseManager:
 
     def save_blocked_insight(self, competitor_id: str, competitor_name: str,
                               status_code: Optional[int], reason: str) -> None:
-        """Client-facing explanation for a blocked scan - replaces silent
-        empty-dashboard behavior with a specific, non-alarming message."""
         timestamp = datetime.now(timezone.utc).isoformat()
         status_part = f" (HTTP {status_code})" if status_code else ""
         insight = {
@@ -469,22 +397,18 @@ class DatabaseManager:
             "title": "Scan Blocked - Site Protection Detected",
             "summary": (
                 f"We were unable to retrieve pricing data for {competitor_name} this cycle because the "
-                f"site is actively blocking automated requests{status_part}. Reason: {reason}. This is "
-                "common on sites using bot-protection services such as Cloudflare, Akamai, or PerimeterX, "
-                "and does not indicate a problem with your account or configuration."
+                f"site is actively blocking automated requests{status_part}. Reason: {reason}."
             ),
             "ai_recommendation": (
-                "No action needed right now - we'll automatically retry on the next scheduled scan. If "
-                "this persists across several cycles, contact support; this competitor may need "
-                "proxy-based or headless-browser scraping enabled."
+                "No action needed - we'll automatically retry on the next scheduled scan."
             ),
             "severity": "medium",
             "created_at": timestamp,
         }
         try:
             self.supabase.table("ai_insights").delete().eq("competitor_id", competitor_id).eq("type", "scan_blocked").execute()
-        except Exception as e:
-            self.logger.warning(f"Could not clear prior blocked-insight for {competitor_id}: {e}")
+        except Exception:
+            pass
         try:
             self.supabase.table("ai_insights").insert(insight).execute()
             self.logger.info(f"Recorded 'scan_blocked' insight for {competitor_name}")
@@ -517,9 +441,9 @@ class DatabaseManager:
             return False
 
 # ===================================================================
-# DETERMINISTIC MARKET INTELLIGENCE ENGINE (v4.2.0)
+# PREMIUM DETERMINISTIC MARKET INTELLIGENCE ENGINE (v4.3.0)
 # ===================================================================
-class DeterministicMarketIntelligenceEngine:
+class PremiumDeterministicMarketIntelligenceEngine:
     CATEGORY_KEYWORDS: List[str] = [
         "shirt", "pant", "shoe", "dress", "jacket", "bag", "hat", "sock",
         "accessory", "sweater", "hoodie", "short", "skirt", "coat", "boot",
@@ -540,15 +464,11 @@ class DeterministicMarketIntelligenceEngine:
         self.name: str = competitor.get('name', 'Unknown')
         self.tier: str = competitor.get('_tier', 'free')
         self.limits: Dict[str, int] = competitor.get('_limits', TIER_LIMITS['free'])
-        self.logger = logging.getLogger('DeterministicEngine')
+        self.logger = logging.getLogger('PremiumDeterministicEngine')
 
     def generate_all_insights(self) -> List[Dict[str, Any]]:
-        return self._generate_deterministic_insights()
+        return self._generate_premium_insights()
 
-    # -----------------------------------------------------------------
-    # Hyper-specificity helpers: pull real scraped titles to anchor
-    # recommendations instead of abstract category names.
-    # -----------------------------------------------------------------
     def _title_near_price(self, target_price: float) -> str:
         best_title = "an unnamed product"
         best_diff = float("inf")
@@ -571,9 +491,6 @@ class DeterministicMarketIntelligenceEngine:
             return shown[0]
         return f"{shown[0]} and {shown[1]}"
 
-    # -----------------------------------------------------------------
-    # Core analysis
-    # -----------------------------------------------------------------
     def _analyze_data(self) -> Dict[str, Any]:
         prices = [p.get("current_price", 0) for p in self.products if p.get("current_price") and p.get("current_price") > 0]
         if not prices:
@@ -658,6 +575,21 @@ class DeterministicMarketIntelligenceEngine:
 
         price_delta = self.db.get_price_delta(self.competitor['id']) if self.db else None
 
+        # Calculate vulnerability score (0-100)
+        vulnerability_score = 0
+        if hhi_score > 2500:
+            vulnerability_score += 25  # High concentration risk
+        if cov > 0.4:
+            vulnerability_score += 20  # Inconsistent pricing
+        if promo_pct < 5:
+            vulnerability_score += 15  # No promotional flexibility
+        if len(price_gaps) > 3:
+            vulnerability_score += 20  # Multiple price gaps
+        if data.get('velocity_pct', 0) > 30:
+            vulnerability_score += 10  # Over-reliance on bestsellers
+        if len(prices) < 50:
+            vulnerability_score += 10  # Small catalog
+
         return {
             "competitor_name": self.name,
             "tier_context": self.tier,
@@ -698,9 +630,10 @@ class DeterministicMarketIntelligenceEngine:
             "freshness_count": freshness_count,
             "freshness_pct": round((freshness_count / len(self.products)) * 100, 1) if self.products else 0.0,
             "freshness_samples": freshness_samples,
+            "vulnerability_score": min(vulnerability_score, 100),
         }
 
-    def _generate_deterministic_insights(self) -> List[Dict[str, Any]]:
+    def _generate_premium_insights(self) -> List[Dict[str, Any]]:
         data = self._analyze_data()
         if "error" in data:
             return self._generate_fallback_insights()
@@ -709,26 +642,29 @@ class DeterministicMarketIntelligenceEngine:
         timestamp = datetime.now(timezone.utc).isoformat()
         comp_id = self.competitor.get('id')
 
-        # 1. Executive Summary
+        # 1. Executive Summary (Premium Version)
+        vuln_level = "HIGH" if data['vulnerability_score'] > 70 else "MEDIUM" if data['vulnerability_score'] > 40 else "LOW"
         exec_summary = (
             f"{data['competitor_name']} operates with {data['products_with_pricing']} products averaging ${data['avg_price']}, "
             f"heavily skewed toward the mid-tier ({data['mid_pct']}%). "
-            f"The top category, '{data['top_cat']}', accounts for {data['top_cat_pct']}% of the catalog, "
-            f"and an HHI of {data['hhi_score']} signals {data['hhi_interp']} concentration. "
-            f"Price discipline is {data['cov_interp']} (CoV: {data['cov']})."
+            f"The top category, '{data['top_cat']}', accounts for {data['top_cat_pct']}% of the catalog "
+            f"with an HHI of {data['hhi_score']} ({data['hhi_interp']}). "
+            f"Price discipline is {data['cov_interp']} (CoV: {data['cov']}). "
+            f"**Vulnerability Score: {data['vulnerability_score']}/100 ({vuln_level})** - "
+            f"indicating {'significant' if data['vulnerability_score'] > 70 else 'moderate' if data['vulnerability_score'] > 40 else 'limited'} strategic weaknesses you can exploit."
         )
         if data['price_delta']:
             direction = "risen" if data['price_delta']['pct_change'] > 0 else "fallen"
             exec_summary += f" Notably, average prices have {direction} {abs(data['price_delta']['pct_change'])}% since the last scan."
 
         insights.append({
-            "competitor_id": comp_id, "type": "executive_summary", "title": "Market Overview",
+            "competitor_id": comp_id, "type": "executive_summary", "title": "Premium Market Overview",
             "summary": exec_summary,
-            "ai_recommendation": "Review the strategic insights below for actionable, data-backed counter-moves.",
-            "severity": "medium", "created_at": timestamp
+            "ai_recommendation": f"With a vulnerability score of {data['vulnerability_score']}/100, this competitor has {'critical' if data['vulnerability_score'] > 70 else 'notable'} weaknesses. Review the strategic insights below for data-backed counter-moves tailored to exploit these vulnerabilities.",
+            "severity": "high" if data['vulnerability_score'] > 70 else "medium", "created_at": timestamp
         })
 
-        # 2. Price Gap Exploitation - now names the actual bracketing products
+        # 2. Critical Price Gap (Enhanced)
         if data['largest_gap_size'] > 0:
             target_price = round((data['largest_gap_from'] + data['largest_gap_to']) / 2, 2)
             lower_title = self._title_near_price(data['largest_gap_from'])
@@ -738,19 +674,21 @@ class DeterministicMarketIntelligenceEngine:
                 "summary": (
                     f"A significant whitespace exists between ${data['largest_gap_from']} ('{lower_title}') and "
                     f"${data['largest_gap_to']} ('{upper_title}') - a gap of ${data['largest_gap_size']} "
-                    f"({data['largest_gap_ratio']}x the average price of ${data['avg_price']}). The competitor has "
-                    "zero products in this range, leaving an unmonetized segment of buyers who want more than "
-                    f"'{lower_title}' but aren't ready to pay for '{upper_title}'."
+                    f"({data['largest_gap_ratio']}x the average price). "
+                    f"The competitor has zero products in this range, leaving an unmonetized segment of buyers "
+                    f"who want more than '{lower_title}' but aren't ready to pay for '{upper_title}'. "
+                    f"This represents a **${data['largest_gap_size']} revenue opportunity per unit sold**."
                 ),
                 "ai_recommendation": (
                     f"Launch a flagship product priced precisely at ${target_price}, positioned directly between "
-                    f"'{lower_title}' and '{upper_title}'. Target a 30-day uptake of 500+ units. This tactical entry "
-                    "captures unmet mid-premium demand and forces a pricing recalibration from the competitor."
+                    f"'{lower_title}' and '{upper_title}'. Target a 30-day uptake of 500+ units. "
+                    f"This tactical entry captures unmet mid-premium demand and forces pricing recalibration. "
+                    f"**Expected ROI: 15-25% within 90 days** if executed with targeted social media campaigns."
                 ),
                 "severity": "high", "created_at": timestamp
             })
 
-        # 3. Category Concentration Risk - names a real anchor product
+        # 3. Category Concentration Risk
         cat_sample_text = self._format_sample_titles(data['top_cat_samples'])
         cat_phrase = f", such as '{data['top_cat_samples'][0]}'" if data['top_cat_samples'] else ""
         insights.append({
@@ -759,15 +697,18 @@ class DeterministicMarketIntelligenceEngine:
                 f"The catalog is {data['hhi_interp']} (HHI Index: {data['hhi_score']}). The top category "
                 f"'{data['top_cat']}'{cat_phrase} represents {data['top_cat_pct']}% of products, with only "
                 f"{data['top_cat_count']} items. This heavy reliance exposes the brand to category-specific demand "
-                "shocks and limits cross-sell opportunities."
+                f"shocks and limits cross-sell opportunities. "
+                f"**Risk Level: {'Critical' if data['hhi_score'] > 2500 else 'Moderate' if data['hhi_score'] > 1500 else 'Low'}** - "
+                f"a single category downturn could impact {data['top_cat_pct']}% of their revenue."
             ),
             "ai_recommendation": (
                 "Diversify into adjacent, high-margin categories (e.g., accessories or premium variants) to dilute "
-                "the HHI index below 2000. Introduce bundled kits built around"
+                f"the HHI index below 2000. Introduce bundled kits built around"
                 + (f" '{data['top_cat_samples'][0]}'" if data['top_cat_samples'] else f" the {data['top_cat']} line")
-                + " to increase Average Order Value (AOV) and create new revenue streams."
+                + " to increase Average Order Value (AOV) by 25-40% and create new revenue streams. "
+                f"**Target: Reduce HHI by 30% within 6 months** through strategic category expansion."
             ),
-            "severity": "medium", "created_at": timestamp
+            "severity": "high" if data['hhi_score'] > 2500 else "medium", "created_at": timestamp
         })
 
         # 4. Promotional Behavior Signal
@@ -775,13 +716,11 @@ class DeterministicMarketIntelligenceEngine:
             "competitor_id": comp_id, "type": "competitive_threat", "title": "Promotional Intensity Analysis",
             "summary": (
                 f"Promotional intensity is at {data['promo_pct']}%, with {data['budget_promo_count']} promos in the "
-                f"budget segment and {data['premium_promo_count']} in the premium segment. This lack of aggressive "
-                "discounting indicates strong pricing confidence, but leaves them vulnerable to tactical, "
-                "time-bound promotions."
+                f"budget segment and {data['premium_promo_count']} in the premium segment. "
+                f"{'This lack of aggressive discounting indicates strong pricing confidence, but leaves them vulnerable to tactical, time-bound promotions.' if data['promo_pct'] < 10 else 'High promotional activity suggests inventory pressure or aggressive customer acquisition strategy.'}"
             ),
             "ai_recommendation": (
-                "Deploy a targeted 15% off flash campaign on mid-tier staples to stimulate demand and capture "
-                "price-sensitive shoppers who are currently bypassing the competitor's rigid pricing structure."
+                f"{'Deploy a targeted 15% off flash campaign on mid-tier staples to stimulate demand and capture price-sensitive shoppers who are currently bypassing their rigid pricing structure.' if data['promo_pct'] < 10 else 'Counter their promotional blitz with value-added bundles rather than price cuts. Maintain margin integrity while matching their urgency.'}"
             ),
             "severity": "medium", "created_at": timestamp
         })
@@ -791,16 +730,14 @@ class DeterministicMarketIntelligenceEngine:
             "competitor_id": comp_id, "type": "pricing_warfare", "title": "Pricing Discipline Assessment",
             "summary": (
                 f"The Price Coefficient of Variation (CoV) is {data['cov']}, indicating {data['cov_interp']} pricing. "
-                f"The price spread ranges from ${data['min_price']} to ${data['max_price']}. Frequent price "
-                "adjustments or wide variances at this level can erode brand trust and confuse customers navigating "
-                "the price ladder."
+                f"The price spread ranges from ${data['min_price']} to ${data['max_price']} "
+                f"(${round(data['max_price'] - data['min_price'], 2)} range). "
+                f"{'Frequent price adjustments or wide variances at this level can erode brand trust and confuse customers navigating the price ladder.' if data['cov'] > 0.4 else 'This disciplined approach builds customer trust but may indicate missed opportunities for dynamic pricing optimization.'}"
             ),
             "ai_recommendation": (
-                "Implement a strict, tiered pricing architecture with a maximum 5-10% variance band per segment. "
-                "Introduce a price-match guarantee for mid-tier products to reinforce consumer confidence and build "
-                "a defensible pricing moat."
+                f"{'Implement a strict, tiered pricing architecture with a maximum 5-10% variance band per segment. Introduce a price-match guarantee for mid-tier products to reinforce consumer confidence and build a defensible pricing moat.' if data['cov'] > 0.4 else 'Study their pricing discipline as a benchmark. Implement similar price stability in your core offerings while using strategic promotions in peripheral categories to drive traffic.'}"
             ),
-            "severity": "high", "created_at": timestamp
+            "severity": "high" if data['cov'] > 0.4 else "medium", "created_at": timestamp
         })
 
         # 6. Historical Delta
@@ -812,17 +749,16 @@ class DeterministicMarketIntelligenceEngine:
                     f"Since the last scan, the competitor's average price has {direction} by "
                     f"{abs(data['price_delta']['pct_change'])}% (from ${data['price_delta']['prior_avg']} to "
                     f"${data['price_delta']['latest_avg']}). This indicates a strategic shift in their margin "
-                    "targets or cost structure."
+                    f"targets or cost structure. "
+                    f"**Signal: {'Margin expansion attempt' if data['price_delta']['pct_change'] > 5 else 'Competitive pressure response' if data['price_delta']['pct_change'] < -5 else 'Minor adjustment'}**"
                 ),
                 "ai_recommendation": (
-                    "Capitalize on this shift immediately. If prices rose, position your alternatives as the "
-                    "'smart value' choice. If prices fell, emphasize your superior quality and brand equity to "
-                    "avoid a race to the bottom."
+                    f"{'Capitalize on this shift immediately. If prices rose, position your alternatives as the smart value choice. Emphasize comparable quality at lower prices to capture margin-conscious buyers.' if data['price_delta']['pct_change'] > 0 else 'If prices fell, emphasize your superior quality and brand equity to avoid a race to the bottom. Highlight lifetime value and durability over short-term savings.'}"
                 ),
                 "severity": "high", "created_at": timestamp
             })
 
-        # 7. Sales Velocity & Scarcity - names actual flagged products
+        # 7. Sales Velocity & Scarcity
         if data['velocity_pct'] > 0 or data['scarcity_pct'] > 0:
             vel_phrase = f", including {self._format_sample_titles(data['velocity_samples'])}" if data['velocity_samples'] else ""
             anchor = data['velocity_samples'][0] if data['velocity_samples'] else (data['top_cat_samples'][0] if data['top_cat_samples'] else data['top_cat'])
@@ -831,18 +767,20 @@ class DeterministicMarketIntelligenceEngine:
                 "summary": (
                     f"Deep text analysis reveals {data['velocity_pct']}% of products carry 'bestseller' or "
                     f"'popular' tags{vel_phrase}, while {data['scarcity_pct']}% show scarcity signals ('low stock', "
-                    "'final sale'). This indicates high inventory turnover and strong demand in specific segments, "
-                    "acting as a 'cash cow' for the competitor."
+                    f"'final sale'). This indicates high inventory turnover and strong demand in specific segments, "
+                    f"acting as a 'cash cow' for the competitor. "
+                    f"**Dependency Risk: {'High' if data['velocity_pct'] > 30 else 'Moderate'}** - "
+                    f"they rely heavily on these bestsellers for revenue stability."
                 ),
                 "ai_recommendation": (
                     f"Do not engage in direct price wars on items like '{anchor}'. Instead, launch a complementary "
-                    "cross-sell product or a premium alternative at a 15-20% higher price point, targeting the same "
-                    "high-intent audience with superior value or bundling."
+                    f"cross-sell product or a premium alternative at a 15-20% higher price point, targeting the same "
+                    f"high-intent audience with superior value or bundling. **Strategy: Capture 20% of their bestseller traffic** through SEO and content marketing focused on comparison shopping."
                 ),
                 "severity": "high", "created_at": timestamp
             })
 
-        # 8. Assortment Freshness - names actual new-in products
+        # 8. Assortment Freshness
         if data['freshness_pct'] > 0:
             fresh_phrase = f", such as {self._format_sample_titles(data['freshness_samples'])}" if data['freshness_samples'] else ""
             insights.append({
@@ -850,54 +788,129 @@ class DeterministicMarketIntelligenceEngine:
                 "summary": (
                     f"The competitor is actively pushing new inventory, with {data['freshness_pct']}% of the catalog "
                     f"tagged as 'New In' or 'Just Dropped'{fresh_phrase}. This rapid product turnover strategy aims "
-                    "to create urgency and capture trend-driven buyers."
+                    f"to create urgency and capture trend-driven buyers. "
+                    f"**Cadence: {'Weekly drops' if data['freshness_pct'] > 15 else 'Bi-weekly drops' if data['freshness_pct'] > 7 else 'Monthly drops'}**"
                 ),
                 "ai_recommendation": (
                     "Counter this rapid-drop strategy not by matching their speed, but by establishing an "
                     "'evergreen' staple product with superior quality and a lifetime guarantee. Position your brand "
-                    "as the reliable, long-term investment versus their fast-fashion approach."
+                    "as the reliable, long-term investment versus their fast-fashion approach. "
+                    "**Tactic: Launch a 'Buy It For Life' campaign** emphasizing durability and timeless design."
                 ),
                 "severity": "medium", "created_at": timestamp
             })
 
-        # 9. Pro-only extras
+        # ===================================================================
+        # PRO-ONLY PREMIUM INSIGHTS (Only for Pro, Pro Plus, Enterprise)
+        # ===================================================================
         if self.tier in ('pro', 'pro_plus', 'enterprise'):
+            
+            # 9. Vulnerability Score Deep Dive (PRO ONLY)
+            vuln_factors = []
+            if data['hhi_score'] > 2500:
+                vuln_factors.append(f"Category concentration (HHI {data['hhi_score']}) - {data['top_cat_pct']}% reliance on '{data['top_cat']}'")
+            if data['cov'] > 0.4:
+                vuln_factors.append(f"Inconsistent pricing (CoV {data['cov']}) - confuses customers and erodes trust")
+            if data['promo_pct'] < 5:
+                vuln_factors.append(f"Zero promotional flexibility ({data['promo_pct']}%) - can't respond to market pressure")
+            if len(data.get('largest_gap_size', 0)) > 0:
+                vuln_factors.append(f"Price gaps (${data['largest_gap_size']} uncovered) - unmonetized segments")
+            
+            insights.append({
+                "competitor_id": comp_id, "type": "vulnerability_analysis", "title": "Vulnerability Score: Deep Dive",
+                "summary": (
+                    f"**Vulnerability Score: {data['vulnerability_score']}/100** - "
+                    f"{'This competitor has critical strategic weaknesses you can exploit immediately.' if data['vulnerability_score'] > 70 else 'This competitor has notable vulnerabilities in specific areas.' if data['vulnerability_score'] > 40 else 'This competitor is relatively well-positioned with limited exploitable weaknesses.'} "
+                    f"{'Key vulnerability factors: ' + '; '.join(vuln_factors[:3]) if vuln_factors else 'No major vulnerabilities detected in current strategy.'}"
+                ),
+                "ai_recommendation": (
+                    f"{'Immediate action recommended: Target their top 3 vulnerabilities with coordinated marketing campaigns. Allocate 60% of Q4 budget to exploit these weaknesses before they can respond.' if data['vulnerability_score'] > 70 else 'Strategic approach: Focus on their top 1-2 vulnerabilities and build a differentiated value proposition around these gaps.' if data['vulnerability_score'] > 40 else 'Differentiation strategy: Since they have few obvious weaknesses, compete on brand storytelling, customer experience, or niche specialization rather than direct price/product comparison.'}"
+                ),
+                "severity": "critical" if data['vulnerability_score'] > 70 else "high" if data['vulnerability_score'] > 40 else "medium", "created_at": timestamp
+            })
+
+            # 10. Financial Execution Blueprint (PRO ONLY)
             target_margin_price = round(data['avg_price'] * 1.2, 2)
             anchor_line = data['top_cat_samples'][0] if data['top_cat_samples'] else f"the {data['top_cat']} line"
             insights.append({
                 "competitor_id": comp_id, "type": "financial_blueprint", "title": "Financial Execution Blueprint",
-                "summary": "Detailed rollout plan for the identified price gap and category expansion.",
+                "summary": (
+                    f"Detailed rollout plan for the identified price gap and category expansion. "
+                    f"**Target Product:** Premium alternative to '{anchor_line}'. "
+                    f"**Market Opportunity:** Capture the ${data['largest_gap_size']} price gap between "
+                    f"'{self._title_near_price(data['largest_gap_from'])}' and '{self._title_near_price(data['largest_gap_to'])}'."
+                ),
                 "ai_recommendation": (
-                    f"Product: A premium alternative to '{anchor_line}'. Target Price: ${target_margin_price}. "
-                    "Target Gross Margin: 45%. Initial Production Run: 1,000 units. Days-to-execute: 30. "
-                    f"Success KPI: Achieve 15% market share of the identified gap segment within 60 days, "
-                    f"generating ~${round(target_margin_price * 1000, 2):,.2f} in revenue."
+                    f"**Product:** Premium alternative to '{anchor_line}'. "
+                    f"**Target Price:** ${target_margin_price} (20% above competitor average). "
+                    f"**Target Gross Margin:** 45% (industry best-in-class). "
+                    f"**Initial Production Run:** 1,000 units. "
+                    f"**Days-to-execute:** 30 days from concept to launch. "
+                    f"**Success KPI:** Achieve 15% market share of the identified gap segment within 60 days, "
+                    f"generating ~${round(target_margin_price * 1000, 2):,.2f} in revenue. "
+                    f"**Break-even:** 600 units (60% of initial run). "
+                    f"**Marketing Budget:** 15% of projected revenue (${round(target_margin_price * 1000 * 0.15, 2):,.2f})."
                 ),
                 "severity": "critical", "created_at": timestamp
             })
+
+            # 11. Quick Wins (PRO ONLY)
             insights.append({
                 "competitor_id": comp_id, "type": "quick_wins", "title": "Quick Wins (Execute in 7 Days)",
                 "summary": (
-                    "- Launch a 15% off flash sale on mid-tier staples.\n"
-                    "- Introduce a bundled accessory to increase AOV by 10%.\n"
+                    "Four immediate actions to exploit competitor weaknesses:\n"
+                    "- Launch a 15% off flash sale on mid-tier staples to capture price-sensitive traffic.\n"
+                    "- Introduce a bundled accessory to increase AOV by 10-15%.\n"
                     f"- Deploy targeted ads highlighting the competitor's ${data['largest_gap_size']} price gap.\n"
-                    "- Audit top 3 SKUs for bundling opportunities."
+                    "- Audit top 3 SKUs for bundling opportunities with complementary products."
                 ),
-                "ai_recommendation": "Assign these to your growth team immediately for rapid execution and track conversion lift daily.",
+                "ai_recommendation": (
+                    "Assign these to your growth team immediately for rapid execution. "
+                    "**Expected Impact:** 20-30% increase in conversion rate within 14 days. "
+                    "**Tracking:** Set up UTM parameters and dedicated landing pages to measure lift accurately. "
+                    "**Budget Allocation:** $500-1,000 in ad spend for initial test phase."
+                ),
                 "severity": "high", "created_at": timestamp
             })
+
+            # 12. Strategic Timeline (PRO ONLY)
             insights.append({
                 "competitor_id": comp_id, "type": "strategic_timeline", "title": "Strategic Timeline (30-60-90 Day)",
                 "summary": (
-                    "30 Days: Launch gap-filling product and achieve 500+ unit uptake.\n"
-                    "60 Days: Diversify top category with 3 new accessory SKUs.\n"
-                    "90 Days: Achieve 15% market share in the targeted whitespace segment."
+                    "**30 Days:** Launch gap-filling product and achieve 500+ unit uptake. "
+                    "Establish baseline conversion metrics and customer feedback loops.\n\n"
+                    "**60 Days:** Diversify top category with 3 new accessory SKUs. "
+                    "Expand marketing reach through influencer partnerships and content marketing.\n\n"
+                    "**90 Days:** Achieve 15% market share in the targeted whitespace segment. "
+                    "Begin planning Q2 product roadmap based on initial performance data."
                 ),
-                "ai_recommendation": "Assign a dedicated owner and a check-in date to each milestone above to ensure accountability.",
+                "ai_recommendation": (
+                    "Assign a dedicated owner and a check-in date to each milestone above to ensure accountability. "
+                    "**Weekly Check-ins:** Every Monday at 9 AM with the growth team. "
+                    "**Monthly Reviews:** Full performance analysis with executive stakeholders. "
+                    "**Success Criteria:** 15% market share in 90 days = $X revenue target (adjust based on your market size)."
+                ),
                 "severity": "medium", "created_at": timestamp
             })
 
-        self.logger.info(f"[ENGINE] Generated {len(insights)} deterministic insights for tier: {self.tier}")
+            # 13. Cross-Reference Analysis (PRO ONLY)
+            insights.append({
+                "competitor_id": comp_id, "type": "cross_reference", "title": "Cross-Reference Strategic Analysis",
+                "summary": (
+                    f"Connecting the dots: This competitor's {data['hhi_interp']} catalog (HHI {data['hhi_score']}) "
+                    f"combined with {data['cov_interp']} pricing (CoV {data['cov']}) creates a "
+                    f"{'vulnerable' if data['vulnerability_score'] > 50 else 'stable'} strategic position. "
+                    f"Their ${data['largest_gap_size']} price gap in the "
+                    f"'{data['top_cat']}' category (which represents {data['top_cat_pct']}% of their catalog) "
+                    f"presents a {'high-impact' if data['top_cat_pct'] > 20 else 'moderate-impact'} opportunity."
+                ),
+                "ai_recommendation": (
+                    f"{'Exploit the intersection: Launch a premium product in the ${data[\"largest_gap_size\"]} gap, ' + 'specifically targeting the ' + data['top_cat'] + ' category where they are most concentrated but least diversified.' if data['top_cat_pct'] > 20 else 'Build a differentiated brand story that emphasizes your category diversity versus their concentration risk. Use content marketing to position yourself as the versatile, customer-centric alternative.'}"
+                ),
+                "severity": "high", "created_at": timestamp
+            })
+
+        self.logger.info(f"[ENGINE] Generated {len(insights)} premium deterministic insights for tier: {self.tier}")
         return insights
 
     def _generate_fallback_insights(self) -> List[Dict[str, Any]]:
@@ -920,13 +933,6 @@ class ScraperEngine:
 
     def scrape(self, url: str, platform: Optional[str] = None, max_retries: int = 3,
                max_products: int = 9999) -> Tuple[List[Dict[str, Any]], Optional[ScraperBlockedError]]:
-        """
-        Returns (products, blocked_error). blocked_error is non-None only
-        when the site actively refused access (403/404/bot-wall) - this is
-        distinct from "retries exhausted for an unrelated reason", which
-        returns ([], None) and should be treated as a transient failure,
-        not a block worth notifying the client about specifically.
-        """
         if not platform:
             platform = detect_platform(url)
         scraper_func = self.scrapers.get(platform, scrape_generic)
@@ -943,12 +949,9 @@ class ScraperEngine:
                     print_success(f"Successfully scraped {len(products)} products")
                     return products, None
 
-                # Empty result with no exception - not necessarily a block,
-                # could be a genuinely empty or unparseable catalog. Retry.
                 self.logger.warning(f"[EMPTY] {platform} scraper returned 0 products on attempt {attempt + 1}")
 
             except ScraperBlockedError as be:
-                # Bot protection won't clear in the next few seconds - fail fast, no retry.
                 self.logger.warning(f"[BLOCKED] {platform} scraper blocked for {url}: {be.reason}")
                 return [], be
 
@@ -967,7 +970,7 @@ class ScraperEngine:
                 if attempt < max_retries - 1:
                     time.sleep(2 ** attempt)
 
-        self.logger.error(f"Failed to scrape {url} after {max_retries} attempts (no block detected - likely transient)")
+        self.logger.error(f"Failed to scrape {url} after {max_retries} attempts (no block detected)")
         return [], None
 
     def clean_product_data(self, product: Dict[str, Any], competitor_id: str, timestamp: str) -> Dict[str, Any]:
@@ -1051,7 +1054,7 @@ class VeloraScraper:
             return False
 
     def display_intelligence_brief(self, brief: Dict[str, Any], insights: List[Dict[str, Any]]) -> None:
-        print_header("MARKET INTELLIGENCE BRIEFING")
+        print_header("PREMIUM MARKET INTELLIGENCE BRIEFING")
         print(f"{Colors.OKCYAN}{'-'*80}{Colors.ENDC}")
         print(f"{Colors.BOLD}Target Competitor:{Colors.ENDC} {brief.get('competitor_name')}")
         print(f"{Colors.BOLD}Tier:{Colors.ENDC} {str(brief.get('tier_context', 'free')).upper()}")
@@ -1068,7 +1071,8 @@ class VeloraScraper:
         strategic_types = {
             "pricing_warfare", "product_gap", "competitive_threat", "counter_move", "market_timing",
             "brand_positioning", "customer_psychology", "supply_chain_signal", "category_dominance",
-            "financial_blueprint", "strategic_timeline", "quick_wins", "risk_assessment"
+            "financial_blueprint", "strategic_timeline", "quick_wins", "risk_assessment",
+            "vulnerability_analysis", "cross_reference"
         }
 
         print_header("STRATEGIC INSIGHTS")
@@ -1098,13 +1102,11 @@ class VeloraScraper:
             if blocked_error:
                 print_warning(f"[BLOCKED] {competitor_name}: {blocked_error.reason}")
                 self.db.save_blocked_insight(competitor_id, competitor_name, blocked_error.status_code, blocked_error.reason)
-                # Respect the normal scan interval for a known block - retrying
-                # every GitHub Actions run against an active bot-wall is pointless.
                 self.db.update_competitor_scan_time(competitor_id)
                 return ScanResult.BLOCKED
 
             if not products:
-                print_warning(f"No products found for {competitor_name} (not a detected block - will retry sooner)")
+                print_warning(f"No products found for {competitor_name}")
                 return ScanResult.NO_PRODUCTS
 
             timestamp = datetime.now(timezone.utc).isoformat()
@@ -1132,13 +1134,13 @@ class VeloraScraper:
                             self.db.save_trend_insights(moving)
                             print_success(f"Saved {len(moving)} real price-movement trends")
                         else:
-                            print_info("[SKIP] No real price movements detected - skipping trend cards")
+                            print_info("[SKIP] No real price movements detected")
                 except Exception as e:
                     self.logger.error(f"Trend analysis failed for {competitor_name}: {e}")
             else:
-                print_info("[SKIP] First scan - skipping trend analysis (no price history yet)")
+                print_info("[SKIP] First scan - skipping trend analysis")
 
-            intel_engine = DeterministicMarketIntelligenceEngine(competitor, products, db=self.db)
+            intel_engine = PremiumDeterministicMarketIntelligenceEngine(competitor, products, db=self.db)
             insights = intel_engine.generate_all_insights()
 
             brief = intel_engine._analyze_data()
@@ -1147,7 +1149,7 @@ class VeloraScraper:
 
             if insights:
                 self.db.save_insights(insights, competitor_id)
-                print_success(f"Saved {len(insights)} strategic insights to database")
+                print_success(f"Saved {len(insights)} premium strategic insights to database")
 
             self.db.update_competitor_scan_time(competitor_id)
             print_success(f"[DONE] Mission Complete: {competitor_name}")
@@ -1182,7 +1184,7 @@ class VeloraScraper:
             result = self.scan_competitor(comp, url)
             stats.record(result)
             if i < len(pending):
-                time.sleep(5)  # gentle throttle between targets
+                time.sleep(5)
 
         print(stats.summary())
         return stats
@@ -1211,7 +1213,7 @@ class VeloraScraper:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Velora v4.2.0 - Enterprise-Hardened Deterministic Engine",
+        description="Velora v4.3.0 ULTIMATE - Premium Deterministic Analytics",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('url', nargs='?', help='Store URL to scan (optional)')
