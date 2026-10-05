@@ -14,13 +14,24 @@ final insightsRepositoryProvider = Provider<InsightsRepository>((ref) {
 // Data Providers
 // ═══════════════════════════════════════════
 
-/// Provider لجلب كل الـ Insights
+/// Provider لجلب كل الـ Insights — tier-filtered.
+///
+/// ✅ CHANGED: `getAll()` → `getAllForCurrentUser()`.
+/// This single change activates all the tier-gating logic we built into
+/// `AIInsight.isVisibleForTier(userTier)`:
+///   - Free users see common insights + the stockout teaser.
+///   - Pro / Pro Plus / Enterprise users see every Pro-only insight
+///     (quick_wins, financial_blueprint, vulnerability_analysis, etc.)
+///     and do NOT see the Free-only teaser.
+///
+/// `insightsStatsProvider` is automatically tier-filtered too, because
+/// `repository.getStats()` now calls `getAllForCurrentUser()` internally.
 final insightsListProvider = FutureProvider<List<AIInsight>>((ref) async {
   final repository = ref.watch(insightsRepositoryProvider);
-  return repository.getAll();
+  return repository.getAllForCurrentUser();
 });
 
-/// Provider لإحصائيات الـ Insights
+/// Provider لإحصائيات الـ Insights (tier-filtered internally)
 final insightsStatsProvider = FutureProvider<Map<String, int>>((ref) async {
   final repository = ref.watch(insightsRepositoryProvider);
   return repository.getStats();
@@ -36,7 +47,7 @@ final severityFilterProvider = StateProvider<String?>((ref) => null);
 /// Search query
 final insightsSearchQueryProvider = StateProvider<String>((ref) => '');
 
-/// Filtered insights (based on severity + search)
+/// Filtered insights (based on severity + search, on top of tier filtering)
 final filteredInsightsProvider = Provider<List<AIInsight>>((ref) {
   final insightsAsync = ref.watch(insightsListProvider);
   final severityFilter = ref.watch(severityFilterProvider);
@@ -45,25 +56,24 @@ final filteredInsightsProvider = Provider<List<AIInsight>>((ref) {
   return insightsAsync.whenOrNull(
         data: (insights) {
           var filtered = insights;
-          
+
           // Filter by severity
           if (severityFilter != null) {
             filtered = filtered.where((i) => i.severity == severityFilter).toList();
           }
-          
+
           // Filter by search query
           if (searchQuery.isNotEmpty) {
             filtered = filtered.where((i) {
-              // ✅ الحل: استخدام final بدلاً من const
               final title = i.title.toLowerCase();
               final summary = i.summary.toLowerCase();
               final competitor = (i.competitorName ?? '').toLowerCase();
-              return title.contains(searchQuery) || 
+              return title.contains(searchQuery) ||
                      summary.contains(searchQuery) ||
                      competitor.contains(searchQuery);
             }).toList();
           }
-          
+
           return filtered;
         },
       ) ??
