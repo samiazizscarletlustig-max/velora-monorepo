@@ -8,14 +8,14 @@ class BillingScreen extends StatelessWidget {
 
   // ═══════════════════════════════════════════════════════════
   // LEMON SQUEEZY CHECKOUT LINKS
-  // Replace these with your real Lemon Squeezy buy links.
+  // Pro   = LIVE  (real link pasted below)
+  // Pro+  = pending (placeholder until we add that product)
   //
   // Where to find them:
-  // Lemon Squeezy → Store → Products → Velora Pro → Copy link
-  // Lemon Squeezy → Store → Products → Velora Pro Plus → Copy link
+  // Lemon Squeezy → Store → Products → Velora Pro → Share → Copy link
   // ═══════════════════════════════════════════════════════════
   static const String proCheckoutUrl =
-      'https://yourstore.lemonsqueezy.com/checkout/buy/pro-id';
+      'https://velora-hq.lemonsqueezy.com/checkout/buy/8a124f44-1375-4fca-bc07-a76d9b6229c8';
 
   static const String proPlusCheckoutUrl =
       'https://yourstore.lemonsqueezy.com/checkout/buy/proplus-id';
@@ -221,7 +221,7 @@ class BillingScreen extends StatelessWidget {
                 _buildTableRow('Price History', '❌', '❌', '✅', '✅'),
                 _buildTableRow('PDF Export', '❌', '❌', '✅', '✅'),
                 _buildTableRow(
-                    'Email Alerts', '❌', '❌', '✅', '✅ + Slack'),
+                    'Email Alerts', '❌', '', '✅', '✅ + Slack'),
                 _buildTableRow('API Access', '❌', '❌', '❌', '✅'),
                 _buildTableRow(
                     'Support', 'Community', 'Email 48h', 'Priority 24h', 'Dedicated'),
