@@ -2,10 +2,23 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../data/tier_repository.dart';
-import '../presentation/providers/tier_providers.dart';
 
 class BillingScreen extends StatelessWidget {
   const BillingScreen({super.key});
+
+  // ═══════════════════════════════════════════════════════════
+  // LEMON SQUEEZY CHECKOUT LINKS
+  // Replace these with your real Lemon Squeezy buy links.
+  //
+  // Where to find them:
+  // Lemon Squeezy → Store → Products → Velora Pro → Copy link
+  // Lemon Squeezy → Store → Products → Velora Pro Plus → Copy link
+  // ═══════════════════════════════════════════════════════════
+  static const String proCheckoutUrl =
+      'https://yourstore.lemonsqueezy.com/checkout/buy/pro-id';
+
+  static const String proPlusCheckoutUrl =
+      'https://yourstore.lemonsqueezy.com/checkout/buy/proplus-id';
 
   @override
   Widget build(BuildContext context) {
@@ -23,7 +36,7 @@ class BillingScreen extends StatelessWidget {
         future: TierRepository.getCurrentUserTier(),
         builder: (context, snapshot) {
           final currentTier = snapshot.data ?? 'free';
-          
+
           return SingleChildScrollView(
             padding: const EdgeInsets.all(48),
             child: Column(
@@ -45,8 +58,8 @@ class BillingScreen extends StatelessWidget {
                   style: const TextStyle(fontSize: 16, color: Colors.white54),
                 ),
                 const SizedBox(height: 64),
-                
-                // ═══ 4 بطاقات الخطط ═══
+
+                // ═══ 4 plan cards ═══
                 Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -64,7 +77,9 @@ class BillingScreen extends StatelessWidget {
                           'Executive Summary',
                           'Community Support',
                         ],
-                        buttonText: currentTier == 'free' ? 'Current Plan' : 'Downgrade',
+                        buttonText: currentTier == 'free'
+                            ? 'Current Plan'
+                            : 'Downgrade',
                         isPopular: false,
                         isCurrent: currentTier == 'free',
                       ),
@@ -76,7 +91,7 @@ class BillingScreen extends StatelessWidget {
                         child: _PricingCard(
                           title: 'Pro',
                           titleAr: 'احترافي',
-                          price: '\$29',
+                          price: '\$49',
                           period: '/mo',
                           subtitle: 'For growing brands',
                           features: const [
@@ -87,10 +102,12 @@ class BillingScreen extends StatelessWidget {
                             'Quick Wins & Risk Alerts',
                             'Priority Email Support',
                           ],
-                          buttonText: currentTier == 'pro' ? 'Current Plan' : 'Upgrade to Pro',
+                          buttonText: currentTier == 'pro'
+                              ? 'Current Plan'
+                              : 'Upgrade to Pro',
                           isPopular: true,
                           isCurrent: currentTier == 'pro',
-                          checkoutUrl: 'https://yourstore.lemonsqueezy.com/checkout/buy/pro-id',
+                          checkoutUrl: proCheckoutUrl,
                         ),
                       ),
                     ),
@@ -99,7 +116,7 @@ class BillingScreen extends StatelessWidget {
                       child: _PricingCard(
                         title: 'Pro Plus',
                         titleAr: 'متقدم',
-                        price: '\$79',
+                        price: '\$99',
                         period: '/mo',
                         subtitle: 'For serious teams',
                         features: const [
@@ -110,10 +127,12 @@ class BillingScreen extends StatelessWidget {
                           'PDF Report Export',
                           'Email Alerts (Critical changes)',
                         ],
-                        buttonText: currentTier == 'pro_plus' ? 'Current Plan' : 'Upgrade',
+                        buttonText: currentTier == 'pro_plus'
+                            ? 'Current Plan'
+                            : 'Upgrade',
                         isPopular: false,
                         isCurrent: currentTier == 'pro_plus',
-                        checkoutUrl: 'https://yourstore.lemonsqueezy.com/checkout/buy/proplus-id',
+                        checkoutUrl: proPlusCheckoutUrl,
                       ),
                     ),
                     const SizedBox(width: 20),
@@ -168,13 +187,20 @@ class BillingScreen extends StatelessWidget {
             ),
             child: const Text(
               'Feature Comparison / مقارنة الميزات',
-              style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Colors.white),
+              style: TextStyle(
+                fontSize: 20,
+                fontWeight: FontWeight.bold,
+                color: Colors.white,
+              ),
             ),
           ),
           SingleChildScrollView(
             scrollDirection: Axis.horizontal,
             child: DataTable(
-              headingTextStyle: const TextStyle(fontWeight: FontWeight.bold, color: Colors.white70),
+              headingTextStyle: const TextStyle(
+                fontWeight: FontWeight.bold,
+                color: Colors.white70,
+              ),
               dataTextStyle: const TextStyle(color: Colors.white70),
               columns: const [
                 DataColumn(label: Text('Feature')),
@@ -186,14 +212,19 @@ class BillingScreen extends StatelessWidget {
               rows: [
                 _buildTableRow('Competitors', '3', '10', '25', '∞'),
                 _buildTableRow('Scan Frequency', '24h', '6h', '3h', '1h'),
-                _buildTableRow('Strategic Insights', '6', '12', '12 + Trends', 'Custom'),
-                _buildTableRow('Executive Summary', '✅', '✅', '✅', '✅'),
-                _buildTableRow('Scorecard & Quick Wins', '❌', '✅', '✅', '✅'),
+                _buildTableRow(
+                    'Strategic Insights', '6', '12', '12 + Trends', 'Custom'),
+                _buildTableRow(
+                    'Executive Summary', '✅', '✅', '✅', '✅'),
+                _buildTableRow(
+                    'Scorecard & Quick Wins', '❌', '✅', '✅', '✅'),
                 _buildTableRow('Price History', '❌', '❌', '✅', '✅'),
                 _buildTableRow('PDF Export', '❌', '❌', '✅', '✅'),
-                _buildTableRow('Email Alerts', '❌', '❌', '✅', '✅ + Slack'),
+                _buildTableRow(
+                    'Email Alerts', '❌', '❌', '✅', '✅ + Slack'),
                 _buildTableRow('API Access', '❌', '❌', '❌', '✅'),
-                _buildTableRow('Support', 'Community', 'Email 48h', 'Priority 24h', 'Dedicated'),
+                _buildTableRow(
+                    'Support', 'Community', 'Email 48h', 'Priority 24h', 'Dedicated'),
               ],
             ),
           ),
@@ -202,10 +233,21 @@ class BillingScreen extends StatelessWidget {
     );
   }
 
-  DataRow _buildTableRow(String feature, String free, String pro, String proPlus, String enterprise) {
+  DataRow _buildTableRow(
+    String feature,
+    String free,
+    String pro,
+    String proPlus,
+    String enterprise,
+  ) {
     return DataRow(
       cells: [
-        DataCell(Text(feature, style: const TextStyle(fontWeight: FontWeight.w500))),
+        DataCell(
+          Text(
+            feature,
+            style: const TextStyle(fontWeight: FontWeight.w500),
+          ),
+        ),
         DataCell(Text(free)),
         DataCell(Text(pro)),
         DataCell(Text(proPlus)),
@@ -244,17 +286,56 @@ class _PricingCard extends StatelessWidget {
 
   Future<void> _handleClick(BuildContext context) async {
     if (isCurrent) return;
+
     if (isContact) {
-      await launchUrl(Uri.parse('mailto:hello@velora.app?subject=Enterprise%20Inquiry'));
+      final uri = Uri.parse(
+        'mailto:hello@velora.app?subject=Enterprise%20Inquiry',
+      );
+
+      try {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      } catch (e) {
+        _showMessage(context, 'Could not open email app.');
+      }
+
       return;
     }
-    if (checkoutUrl != null) {
-      await launchUrl(Uri.parse(checkoutUrl!), mode: LaunchMode.externalApplication);
-    } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Checkout coming soon — activate Pro manually for demo.')),
-      );
+
+    final url = checkoutUrl;
+
+    if (url == null || url.isEmpty) {
+      _showMessage(context, 'Checkout link is not configured yet.');
+      return;
     }
+
+    if (url.contains('yourstore.lemonsqueezy.com')) {
+      _showMessage(
+        context,
+        'Replace the placeholder Lemon Squeezy checkout link first.',
+      );
+      return;
+    }
+
+    final uri = Uri.tryParse(url);
+
+    if (uri == null) {
+      _showMessage(context, 'Invalid checkout URL.');
+      return;
+    }
+
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      _showMessage(context, 'Could not open checkout page.');
+    }
+  }
+
+  void _showMessage(BuildContext context, String message) {
+    if (!context.mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text(message)),
+    );
   }
 
   @override
@@ -295,11 +376,14 @@ class _PricingCard extends StatelessWidget {
                 if (isPopular)
                   Container(
                     margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: primaryColor.withOpacity(0.15),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: primaryColor.withOpacity(0.3)),
+                      border: Border.all(
+                        color: primaryColor.withOpacity(0.3),
+                      ),
                     ),
                     child: Text(
                       'MOST POPULAR',
@@ -314,11 +398,14 @@ class _PricingCard extends StatelessWidget {
                 else if (isCurrent)
                   Container(
                     margin: const EdgeInsets.only(bottom: 16),
-                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                     decoration: BoxDecoration(
                       color: const Color(0xFF4ADE80).withOpacity(0.15),
                       borderRadius: BorderRadius.circular(12),
-                      border: Border.all(color: const Color(0xFF4ADE80).withOpacity(0.3)),
+                      border: Border.all(
+                        color: const Color(0xFF4ADE80).withOpacity(0.3),
+                      ),
                     ),
                     child: const Text(
                       'YOUR PLAN',
@@ -334,14 +421,24 @@ class _PricingCard extends StatelessWidget {
                   const SizedBox(height: 28),
                 Text(
                   title,
-                  style: const TextStyle(fontSize: 24, fontWeight: FontWeight.bold, color: Colors.white),
+                  style: const TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.white,
+                  ),
                 ),
                 Text(
                   titleAr,
                   style: const TextStyle(fontSize: 14, color: Colors.white38),
                 ),
                 const SizedBox(height: 8),
-                Text(subtitle, style: const TextStyle(color: Colors.white54, fontSize: 13)),
+                Text(
+                  subtitle,
+                  style: const TextStyle(
+                    color: Colors.white54,
+                    fontSize: 13,
+                  ),
+                ),
                 const SizedBox(height: 24),
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.end,
@@ -358,7 +455,13 @@ class _PricingCard extends StatelessWidget {
                     if (period != null)
                       Padding(
                         padding: const EdgeInsets.only(bottom: 8, left: 4),
-                        child: Text(period!, style: const TextStyle(color: Colors.white54, fontSize: 16)),
+                        child: Text(
+                          period!,
+                          style: const TextStyle(
+                            color: Colors.white54,
+                            fontSize: 16,
+                          ),
+                        ),
                       ),
                   ],
                 ),
@@ -373,7 +476,9 @@ class _PricingCard extends StatelessWidget {
                             : const Color(0xFF2A3142),
                     foregroundColor: Colors.white,
                     minimumSize: const Size(double.infinity, 52),
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(12),
+                    ),
                     elevation: 0,
                   ),
                   child: Text(
@@ -388,22 +493,32 @@ class _PricingCard extends StatelessWidget {
                 const SizedBox(height: 28),
                 const Divider(color: Color(0xFF222938), height: 1),
                 const SizedBox(height: 24),
-                ...features.map((f) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Icon(Icons.check_circle, color: primaryColor, size: 18),
-                          const SizedBox(width: 10),
-                          Expanded(
-                            child: Text(
-                              f,
-                              style: const TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
+                ...features.map(
+                  (f) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(
+                          Icons.check_circle,
+                          color: primaryColor,
+                          size: 18,
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Text(
+                            f,
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 13,
+                              height: 1.4,
                             ),
                           ),
-                        ],
-                      ),
-                    )),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ],
             ),
           ),
