@@ -8,10 +8,12 @@ PRODUCTION VERSION v4.5.0 - Deep Analysis + Chart Data Bundle
 [OK] NEW: Price Architecture & Psychological Pricing Deep Dive (longer, richer analysis)
 [OK] NEW: chart_bundle insight - structured JSON for Flutter charts
      (price distribution, segments donut, category avg-price, signals, price history)
+[OK] NEW: Automatic Resend email alerts (stockout + scan digest) to all watching users
 [OK] 100% deterministic - zero AI cost, unlimited scale
 
 Architecture:
   [GitHub Actions] -> [Scraper] -> [Deterministic Math Engine] -> [Supabase] -> [Flutter App]
+                                   -> [Resend Email Service] (auto-alerts to users)
 """
 
 import os
@@ -36,6 +38,8 @@ from enum import Enum
 
 SCRAPERS_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(SCRAPERS_DIR))
+# ✅ Make `ai/` importable from the project root
+sys.path.insert(0, str(SCRAPERS_DIR.parent))
 
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -46,6 +50,16 @@ from platforms.shopify_scraper import scrape_shopify
 from platforms.woocommerce_scraper import scrape_woocommerce
 from platforms.generic_scraper import scrape_generic
 from core.trend_analyzer import TrendAnalyzer
+
+# ===================================================================
+# 📧 RESEND EMAIL SERVICE (graceful fallback if unavailable)
+# ===================================================================
+try:
+    from ai.email_sender import EmailService
+    _EMAIL_SERVICE_AVAILABLE = True
+except ImportError as _import_err:
+    _EMAIL_SERVICE_AVAILABLE = False
+    _EMAIL_IMPORT_ERROR = str(_import_err)
 
 # ===================================================================
 # Custom Exceptions
@@ -135,6 +149,7 @@ def print_banner() -> None:
     print(f"\n{Colors.HEADER}{'='*80}{Colors.ENDC}")
     print(f"{Colors.OKBLUE} Velora v4.5.0 - Deep Analysis + Chart Data Bundle{Colors.ENDC}")
     print(f"{Colors.OKCYAN}   Price Architecture Deep Dive | Chart Bundle | Adaptive Insights{Colors.ENDC}")
+    print(f"{Colors.OKCYAN}   + Auto Email Alerts (Resend){Colors.ENDC}")
     print(f"{Colors.HEADER}{'='*80}{Colors.ENDC}\n")
 
 
@@ -184,12 +199,22 @@ class Config:
         self.supabase_key: Optional[str] = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
         self.scan_interval: int = int(os.getenv("SCAN_INTERVAL", "86400"))
         self.max_retries: int = int(os.getenv("MAX_RETRIES", "3"))
+        # 📧 Email config
+        self.resend_api_key: Optional[str] = os.getenv("RESEND_API_KEY")
+        self.emails_enabled: bool = bool(self.resend_api_key) and _EMAIL_SERVICE_AVAILABLE
 
     def validate(self) -> bool:
         if not self.supabase_url or not self.supabase_key:
             print_error("Missing Supabase credentials in .env")
             return False
         print_info("[ENGINE] Deterministic Analytics Engine - zero external AI cost")
+        if self.emails_enabled:
+            print_success("[EMAIL] Resend auto-alerts ENABLED (stockout + scan digest)")
+        else:
+            if not _EMAIL_SERVICE_AVAILABLE:
+                print_warning(f"[EMAIL] Disabled: ai.email_sender could not be imported ({_EMAIL_IMPORT_ERROR})")
+            else:
+                print_warning("[EMAIL] Disabled: RESEND_API_KEY not found in .env")
         return True
 
 
@@ -447,6 +472,27 @@ class DatabaseManager:
         except Exception as e:
             self.logger.error(f"Failed to update timestamp: {e}")
             return False
+
+    # ===================================================================
+    # 📧 EMAIL HELPER — fetch the user who owns this competitor
+    # ===================================================================
+    def get_watching_users(self, competitor_id: str) -> List[Dict[str, Any]]:
+        """Return all users who own this competitor, with their email + tier."""
+        try:
+            comp_res = self.supabase.table("competitors").select("user_id").eq("id", competitor_id).execute()
+            if not comp_res.data:
+                return []
+            user_ids = list({row["user_id"] for row in comp_res.data if row.get("user_id")})
+            if not user_ids:
+                return []
+            user_res = self.supabase.table("users").select("id, email, tier").in_("id", user_ids).execute()
+            return [
+                u for u in (user_res.data or [])
+                if u.get("email")
+            ]
+        except Exception as e:
+            self.logger.warning(f"Could not fetch watching users for {competitor_id}: {e}")
+            return []
 
 
 class PremiumDeterministicMarketIntelligenceEngine:
@@ -1261,6 +1307,7 @@ class RunStats:
     no_products: int = 0
     skipped: int = 0
     failed: int = 0
+    emails_sent: int = 0  # 📧 NEW: count of alert emails delivered
     start_time: float = field(default_factory=time.perf_counter)
 
     def record(self, result: ScanResult) -> None:
@@ -1285,6 +1332,7 @@ class RunStats:
             f"  No products returned   : {self.no_products}\n"
             f"  Skipped (no URL)       : {self.skipped}\n"
             f"  {Colors.FAIL}Failed (other errors)  : {self.failed}{Colors.ENDC}\n"
+            f"  {Colors.OKCYAN}Emails sent to users   : {self.emails_sent}{Colors.ENDC}\n"
             f"  Elapsed time           : {elapsed:.1f}s\n"
             f"{Colors.HEADER}{'='*80}{Colors.ENDC}\n"
         )
@@ -1296,6 +1344,7 @@ class VeloraScraper:
         self.supabase: Optional[Client] = None
         self.db: Optional[DatabaseManager] = None
         self.scraper: Optional[ScraperEngine] = None
+        self.email_service: Optional[Any] = None  # 📧 Resend EmailService instance
         self.logger = logging.getLogger('VeloraScraper')
 
     def initialize(self) -> bool:
@@ -1307,10 +1356,120 @@ class VeloraScraper:
             self.db = DatabaseManager(self.supabase)
             self.scraper = ScraperEngine()
             print_success("Connected to Supabase")
+
+            # 📧 Initialize Email Service (safe: never crashes main flow)
+            if self.config.emails_enabled:
+                try:
+                    self.email_service = EmailService(api_key=self.config.resend_api_key)
+                    print_success("Resend EmailService initialized")
+                except Exception as e:
+                    print_warning(f"[EMAIL] EmailService init failed: {e} - emails will be skipped")
+                    self.email_service = None
             return True
         except Exception as e:
             print_error(f"Failed to connect to Supabase: {e}")
             return False
+
+    # ===================================================================
+    # 📧 AUTO-ALERT: Stockout emails to all users watching this competitor
+    # ===================================================================
+    def _send_stockout_alerts(
+        self,
+        competitor_id: str,
+        competitor_name: str,
+        disappeared_products: List[Dict[str, Any]],
+    ) -> int:
+        """
+        Sends a stockout alert email to every user who owns this competitor.
+        Returns the number of emails successfully delivered.
+        """
+        if not self.email_service or not self.db or not disappeared_products:
+            return 0
+
+        users = self.db.get_watching_users(competitor_id)
+        if not users:
+            self.logger.info(f"[EMAIL] No watching users for {competitor_name} - skipping stockout alert")
+            return 0
+
+        # Prepare product dicts for the email template (name + last known price)
+        products_for_email = [
+            {
+                "name": str(p.get("title", "Unnamed product"))[:80],
+                "price": f"${float(p.get('current_price', 0) or 0):.2f}",
+            }
+            for p in disappeared_products
+        ]
+
+        sent = 0
+        for user in users:
+            user_email = user.get("email")
+            user_tier = (user.get("tier") or "free").lower()
+            if not user_email:
+                continue
+            try:
+                ok = self.email_service.send_stockout_alert(
+                    email=user_email,
+                    competitor_name=competitor_name,
+                    products=products_for_email,
+                    tier=user_tier,
+                )
+                if ok:
+                    sent += 1
+            except Exception as e:
+                self.logger.warning(f"[EMAIL] Failed to send stockout alert to {user_email}: {e}")
+
+        if sent:
+            print_success(f"[EMAIL] Stockout alert sent to {sent} user(s) watching {competitor_name}")
+        return sent
+
+    # ===================================================================
+    # 📧 AUTO-ALERT: Scan digest email (lighter, sent after each successful scan)
+    # ===================================================================
+    def _send_scan_digest(
+        self,
+        competitor_id: str,
+        competitor_name: str,
+        insights: List[Dict[str, Any]],
+    ) -> int:
+        """
+        Sends a brief insights digest to every user watching this competitor.
+        Only the non-chart, non-dashboard insights (the actionable strategic ones).
+        Returns the number of emails successfully delivered.
+        """
+        if not self.email_service or not self.db or not insights:
+            return 0
+
+        # Filter to strategic insights the email template can render nicely
+        skip_types = {"chart_bundle", "dashboard_summary"}
+        digest_insights = [i for i in insights if i.get("type") not in skip_types]
+        if not digest_insights:
+            return 0
+
+        users = self.db.get_watching_users(competitor_id)
+        if not users:
+            return 0
+
+        sent = 0
+        for user in users:
+            user_email = user.get("email")
+            user_tier = (user.get("tier") or "free").lower()
+            if not user_email:
+                continue
+            try:
+                ok = self.email_service.send_insights_digest(
+                    email=user_email,
+                    insights=digest_insights,
+                    competitor_name=competitor_name,
+                    tier=user_tier,
+                )
+                if ok:
+                    sent += 1
+            except Exception as e:
+                self.logger.warning(f"[EMAIL] Failed to send digest to {user_email}: {e}")
+
+        if sent:
+            print_success(f"[EMAIL] Scan digest sent to {sent} user(s) watching {competitor_name}")
+        return sent
 
     def display_intelligence_brief(self, brief: Dict[str, Any], insights: List[Dict[str, Any]]) -> None:
         print_header("PREMIUM MARKET INTELLIGENCE BRIEFING")
@@ -1352,7 +1511,7 @@ class VeloraScraper:
             print(f"\n{Colors.OKGREEN}Strategic Counter-Move:{Colors.ENDC}\n  {insight.get('ai_recommendation')}")
         print(f"\n{Colors.OKGREEN}{'='*80}{Colors.ENDC}\n")
 
-    def scan_competitor(self, competitor: Dict[str, Any], url: str) -> ScanResult:
+    def scan_competitor(self, competitor: Dict[str, Any], url: str, stats: Optional[RunStats] = None) -> ScanResult:
         competitor_name = competitor.get('name', 'Unknown')
         competitor_id = competitor.get('id')
         tier = competitor.get('_tier', 'free')
@@ -1445,8 +1604,29 @@ class VeloraScraper:
                 print_success(f"Saved {len(insights)} premium strategic insights to database")
 
             self.db.update_competitor_scan_time(competitor_id)
+
+            # ===================================================================
+            # 📧 AUTO-ALERTS — fired AFTER DB writes, never block the scan
+            # ===================================================================
+            emails_this_scan = 0
+            try:
+                if disappeared_products:
+                    emails_this_scan += self._send_stockout_alerts(
+                        competitor_id, competitor_name, disappeared_products
+                    )
+                if insights:
+                    emails_this_scan += self._send_scan_digest(
+                        competitor_id, competitor_name, insights
+                    )
+            except Exception as email_err:
+                # Email failure must NEVER fail the scan itself
+                self.logger.warning(f"[EMAIL] Auto-alert step errored (scan still succeeded): {email_err}")
+
+            if stats is not None:
+                stats.emails_sent += emails_this_scan
+
             print_success(f"[DONE] Mission Complete: {competitor_name}")
-            print(f"   - Products Mapped: {len(cleaned_products)}\n   - Insights Generated: {len(insights)}")
+            print(f"   - Products Mapped: {len(cleaned_products)}\n   - Insights Generated: {len(insights)}\n   - Emails Sent: {emails_this_scan}")
             return ScanResult.SUCCESS
 
         except Exception as e:
@@ -1474,7 +1654,7 @@ class VeloraScraper:
                 self.logger.warning(f"Competitor {comp.get('name')} has no URL - skipping")
                 stats.skipped += 1
                 continue
-            result = self.scan_competitor(comp, url)
+            result = self.scan_competitor(comp, url, stats=stats)
             stats.record(result)
             if i < len(pending):
                 time.sleep(5)
@@ -1497,7 +1677,11 @@ class VeloraScraper:
         elif url:
             comp = self.db.get_or_create_competitor(url)
             if comp:
-                result = self.scan_competitor(comp, url)
+                stats = RunStats()
+                stats.scanned = 1
+                result = self.scan_competitor(comp, url, stats=stats)
+                stats.record(result)
+                print(stats.summary())
                 print_info(f"Result: {result.value.upper()}")
         elif force_all:
             self.run_dynamic_mode(force_all=True)
@@ -1507,7 +1691,7 @@ class VeloraScraper:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Velora v4.5.0 - Deep Analysis + Chart Data Bundle",
+        description="Velora v4.5.0 - Deep Analysis + Chart Data Bundle + Auto Email Alerts",
         formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument('url', nargs='?', help='Store URL to scan (optional)')
