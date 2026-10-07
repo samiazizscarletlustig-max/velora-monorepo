@@ -801,7 +801,7 @@ class _QuickActionsState extends ConsumerState<_QuickActions> {
         LayoutBuilder(builder: (context, constraints) {
           final isWide = constraints.maxWidth > 700;
           final children = [
-            _ActionButton(icon: Icons.add_rounded, label: 'Add Competitor', shortcut: 'N', gradient: AppColors.primaryGradient, onTap: () => context.go('/competitors/add')),
+            _ActionButton(icon: Icons.add_rounded, label: 'Add Competitor', shortcut: 'N', gradient: AppColors.primaryGradient, onTap: () => context.go('/competitors')),
             _ActionButton(
               icon: Icons.radar_rounded,
               label: 'Run Scan',
