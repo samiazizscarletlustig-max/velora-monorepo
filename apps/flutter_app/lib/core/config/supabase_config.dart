@@ -9,7 +9,7 @@ class SupabaseConfig {
   );
 
   // 🔑 مفتاح Publishable (anon) — آمن للاستخدام داخل التطبيق
-  static const String _supabaseAnonKey = String.fromEnvironment(
+  static const String _supabasepublishableKey = String.fromEnvironment(
     'SUPABASE_ANON_KEY',
     defaultValue: 'sb_publishable_4Gz-quL2ErxsKC17FdQmfw_elWCuoT4',
   );
@@ -19,7 +19,7 @@ class SupabaseConfig {
   static Future<void> initialize() async {
     await Supabase.initialize(
       url: _supabaseUrl,
-      anonKey: _supabaseAnonKey,
+      publishableKey: _supabasepublishableKey,
     );
   }
 

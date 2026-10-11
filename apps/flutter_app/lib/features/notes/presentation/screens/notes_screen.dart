@@ -8,7 +8,7 @@ import 'package:google_fonts/google_fonts.dart';
 
 import '../../../../core/config/app_colors.dart';
 import '../../../../core/widgets/premium_widgets.dart';
-import '../../../../core/extensions/widget_extensions.dart';
+
 import '../providers/notes_providers.dart';
 import '../../data/notes_repository.dart';
 
