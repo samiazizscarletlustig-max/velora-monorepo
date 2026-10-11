@@ -2,9 +2,11 @@ name: 🚀 Velora Auto-Scan
 
 on:
   schedule:
-    # تشغيل تلقائي كل 3 ساعات — والمنطق داخل الكود يقرر من يُمسح حسب خطة كل مستخدم
+    # ✅ تم التعديل: التشغيل التلقائي كل ساعة (بدلاً من كل 3 ساعات)
+    # المنطق داخل الكود (main.py) هو الذي يقرر من يُمسح حسب خطة كل مستخدم:
     # (Free: كل 24h، Pro: كل 6h، Pro Plus: كل 3h، Enterprise: كل 1h)
-    - cron: '0 */3 * * *'
+    # الاستيقاظ كل ساعة يضمن عدم تأخر أي مستخدم عن جدوله الزمني المحدد.
+    - cron: '0 * * * *'
   workflow_dispatch:  # تشغيل يدوي من GitHub
 
 jobs:
@@ -36,7 +38,7 @@ jobs:
           echo "HF_API_KEY=${{ secrets.HF_API_KEY }}" >> .env
           echo "GROQ_API_KEY=${{ secrets.GROQ_API_KEY }}" >> .env
           echo "USE_LOCAL_OLLAMA=false" >> .env
-          echo "SCAN_INTERVAL=86400" >> .env
+          echo "SCAN_INTERVAL=3600" >> .env
           echo "MAX_RETRIES=3" >> .env
           # 📧 متغيرات الإيميلات التلقائية
           echo "RESEND_API_KEY=${{ secrets.RESEND_API_KEY }}" >> .env
