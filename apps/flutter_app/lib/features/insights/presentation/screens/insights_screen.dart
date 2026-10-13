@@ -16,9 +16,10 @@ import '../providers/insights_providers.dart';
 import '../../data/insights_repository.dart';
 
 // ═══════════════════════════════════════════════════════════
-// 💡 INSIGHTS SCREEN — AI PREMIUM EDITION
+// 💡 INSIGHTS SCREEN — AI PREMIUM EDITION (AUTO-REFRESH FIXED)
 // Strategic intelligence hub with expandable insights.
-// ══════════════════════════════════════════════════════════
+// ✅ FIX: Forced refresh on app/tab resume + 60s periodic timer.
+// ═══════════════════════════════════════════════════════════
 class InsightsScreen extends ConsumerStatefulWidget {
   const InsightsScreen({super.key});
 
@@ -26,25 +27,47 @@ class InsightsScreen extends ConsumerStatefulWidget {
   ConsumerState<InsightsScreen> createState() => _InsightsScreenState();
 }
 
-class _InsightsScreenState extends ConsumerState<InsightsScreen> {
+class _InsightsScreenState extends ConsumerState<InsightsScreen>
+    with WidgetsBindingObserver {
   final _searchController = TextEditingController();
   final _searchFocusNode = FocusNode();
   late Timer _refreshTimer;
+  DateTime? _lastAutoRefresh;
 
   @override
   void initState() {
     super.initState();
+    // ✅ سجّل observer ليكتشف عودة التطبيق/التبويب للواجهة
+    WidgetsBinding.instance.addObserver(this);
 
-    _refreshTimer = Timer.periodic(const Duration(seconds: 30), (timer) {
-      if (mounted) {
-        ref.invalidate(insightsListProvider);
-        ref.invalidate(insightsStatsProvider);
-      }
+    // ✅ تحديث دوري كل 60 ثانية (يكشف التحليلات الجديدة فور جاهزيتها)
+    _refreshTimer = Timer.periodic(const Duration(seconds: 60), (timer) {
+      _triggerRefresh();
     });
+  }
+
+  /// ✅ الدالة المركزية للتحديث — تستدعيها الـ timer والـ observer
+  void _triggerRefresh() {
+    if (!mounted) return;
+    ref.invalidate(insightsListProvider);
+    ref.invalidate(insightsStatsProvider);
+    setState(() => _lastAutoRefresh = DateTime.now());
+  }
+
+  /// ✅ الحل الجذري: عند عودة المستخدم للتبويب، حدّث فوراً
+  /// (الـ timer يتجمّد في الخلفية، فهذه الدالة تضمن عدم فوات التحديث)
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state == AppLifecycleState.resumed) {
+      _triggerRefresh();
+    }
   }
 
   @override
   void dispose() {
+    // ✅ نظّف الـ observer والـ timer لتجنب تسرّب الذاكرة
+    WidgetsBinding.instance.removeObserver(this);
     _refreshTimer.cancel();
     _searchController.dispose();
     _searchFocusNode.dispose();
@@ -69,6 +92,8 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
                 statsAsync: statsAsync,
                 searchController: _searchController,
                 searchFocusNode: _searchFocusNode,
+                lastAutoRefresh: _lastAutoRefresh,
+                onManualRefresh: _triggerRefresh,
                 onSearchChanged: (v) => setState(() {
                   ref.read(insightsSearchQueryProvider.notifier).state = v;
                 }),
@@ -142,12 +167,14 @@ class _InsightsScreenState extends ConsumerState<InsightsScreen> {
 }
 
 // ═══════════════════════════════════════════════════════════
-// 🌅 HERO HEADER
+// 🌅 HERO HEADER (مع مؤشر التحديث التلقائي)
 // ═══════════════════════════════════════════════════════════
 class _HeroHeader extends StatelessWidget {
   final AsyncValue<Map<String, int>> statsAsync;
   final TextEditingController searchController;
   final FocusNode searchFocusNode;
+  final DateTime? lastAutoRefresh;
+  final VoidCallback onManualRefresh;
   final ValueChanged<String> onSearchChanged;
   final VoidCallback onClear;
 
@@ -155,9 +182,19 @@ class _HeroHeader extends StatelessWidget {
     required this.statsAsync,
     required this.searchController,
     required this.searchFocusNode,
+    required this.lastAutoRefresh,
+    required this.onManualRefresh,
     required this.onSearchChanged,
     required this.onClear,
   });
+
+  String _refreshLabel(BuildContext context) {
+    if (lastAutoRefresh == null) return 'Auto-refresh ready';
+    final diff = DateTime.now().difference(lastAutoRefresh!);
+    if (diff.inSeconds < 60) return 'Updated ${diff.inSeconds}s ago';
+    if (diff.inMinutes < 60) return 'Updated ${diff.inMinutes}m ago';
+    return 'Updated ${diff.inHours}h ago';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -231,33 +268,45 @@ class _HeroHeader extends StatelessWidget {
                 ],
               ),
             ),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-              decoration: BoxDecoration(
-                color: AppColors.purple.withOpacity(0.15),
-                borderRadius: BorderRadius.circular(20),
-                border: Border.all(color: AppColors.purple.withOpacity(0.3)),
-              ),
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Container(
-                  width: 6,
-                  height: 6,
-                  decoration: const BoxDecoration(
-                    color: AppColors.purple,
-                    shape: BoxShape.circle,
-                  ),
-                ).animate(onPlay: (c) => c.repeat(period: 1500.ms))
-                 .fadeIn().fadeOut(delay: 750.ms),
-                const SizedBox(width: 6),
-                const Text('AI POWERED',
-                    style: TextStyle(
-                      color: Color(0xFF8B5CF6),
+            // ✅ زر التحديث اليدوي + مؤشر التحديث التلقائي
+            Row(mainAxisSize: MainAxisSize.min, children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+                decoration: BoxDecoration(
+                  color: AppColors.success.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: AppColors.success.withOpacity(0.3)),
+                ),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Container(
+                    width: 6,
+                    height: 6,
+                    decoration: const BoxDecoration(
+                      color: AppColors.success,
+                      shape: BoxShape.circle,
+                    ),
+                  ).animate(onPlay: (c) => c.repeat(period: 2000.ms))
+                   .fadeIn().fadeOut(delay: 1000.ms),
+                  const SizedBox(width: 6),
+                  Text(
+                    _refreshLabel(context),
+                    style: const TextStyle(
+                      color: AppColors.success,
                       fontSize: 10,
                       fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
-                    )),
-              ]),
-            ),
+                      letterSpacing: 0.3,
+                    ),
+                  ),
+                ]),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                onPressed: onManualRefresh,
+                tooltip: 'Refresh now',
+                icon: const Icon(Icons.refresh_rounded, size: 20),
+                color: isDark ? AppColors.darkSecondary : AppColors.lightSecondary,
+              ),
+            ]),
           ]),
           const SizedBox(height: 28),
           _PremiumSearchBar(
@@ -275,7 +324,7 @@ class _HeroHeader extends StatelessWidget {
 
 // ═══════════════════════════════════════════════════════════
 // 🔍 PREMIUM SEARCH BAR
-// ══════════════════════════════════════════════════════════
+// ═══════════════════════════════════════════════════════════
 class _PremiumSearchBar extends StatefulWidget {
   final TextEditingController controller;
   final FocusNode focusNode;
@@ -928,30 +977,18 @@ class _InsightsList extends StatelessWidget {
   final List<AIInsight> insights;
   const _InsightsList({required this.insights});
 
-  /// Ultra-robust detection of the chart_bundle insight.
-  ///
-  /// Layers (any one succeeding renders the charts panel):
-  ///  1. Quick guard: summary must look like a JSON object (starts with '{').
-  ///  2. Decode and accept ANY Map runtime type (`is Map`), then cast via
-  ///     Map<String,dynamic>.from(...) — avoids any Map<dynamic,dynamic>
-  ///     vs Map<String,dynamic> pitfalls.
-  ///  3. Fallback: match by the known title "Market Visualizations".
   Map<String, dynamic>? _chartDataFor(AIInsight insight) {
     final raw = insight.summary.trim();
 
-    // Layer 1+2: JSON payload signature.
     if (raw.startsWith('{')) {
       try {
         final decoded = jsonDecode(raw);
         if (decoded is Map && decoded.containsKey('price_distribution')) {
           return Map<String, dynamic>.from(decoded);
         }
-      } catch (_) {
-        // fall through to title fallback
-      }
+      } catch (_) {}
     }
 
-    // Layer 3: title fallback (in case summary ever changes shape).
     if (insight.title.trim().toLowerCase() == 'market visualizations') {
       try {
         final decoded = jsonDecode(raw);
