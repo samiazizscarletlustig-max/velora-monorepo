@@ -1,7 +1,20 @@
 """
 Velora - Advanced Competitive Market Intelligence Engine
 =========================================================
-PRODUCTION VERSION v5.0.0 - Logical Rigor + Portfolio Intelligence + Self-Test
+PRODUCTION VERSION v5.1.0 - Self-Consistency Fixes + Depth Expansion
+
+v5.1.0 = v5.0.0 + three logic fixes + six additive depth upgrades:
+  FIX 1  Competitive Response Model: cut propensity is driven by OBSERVED cuts + temporal repricing
+         frequency, never by cross-category price dispersion. A brand that never cut cannot be a cutter.
+  FIX 2  CoV split: raw `cov` (frozen, cross-category) vs NEW `cov_within_category` (discipline).
+         Interpretation + vulnerability use the within-category figure; both are shown to the client.
+  FIX 3  Coverage artifacts (current scan much smaller/larger than the previous one) can no longer reach
+         DIRECTIVE confidence nor max the delisting-churn factor.
+  B1..B6 dual-CoV narrative | evidence trail in response model | seasonality path-to-confidence |
+         title keyword gap | vulnerability trajectory | cross-insight consistency guard.
+
+GOVERNING PRINCIPLE: the engine never contradicts itself inside one insight. Every printed
+probability / score / label is derived from the SAME numbers that are printed beside it.
 
 100% DETERMINISTIC. Zero paid-AI calls. Zero new tables, columns, env vars or pip deps.
 
@@ -15,16 +28,16 @@ ARCHITECTURE
             _analyze_data()  -> every number used in any insight string
             insight builders -> _mk() stamps confidence (0-1) + directive/hypothesis voice
             _enforce_tier_gate() -> server-side TYPE-based wall (the security boundary)
+            _finalize() -> consistency guard (B6), scrub, caps
       -> DatabaseManager (writes ONLY frozen columns; rows without a real competitor_id are refused)
       -> Resend digests (SKIP_TYPES is the single source of truth)
 
-WEIGHTED VULNERABILITY RUBRIC (replaces the flat bonus-sum of v4.5.0)
----------------------------------------------------------------------
+WEIGHTED VULNERABILITY RUBRIC
+-----------------------------
   score = round( sum_i  weight_i * sub_i ),  sum(weight_i) = 100,  sub_i in [0,1]
   Factors: concentration 22 | pricing inconsistency 18 | promo rigidity 12 | ladder gaps 16 |
            bestseller dependence 8 | thin catalog 8 | delisting churn 16.
-  Each factor exposes (weight, sub-score, points, justification) inside the paid
-  'vulnerability_analysis' summary, so the client sees why the score is what it is.
+  pricing_inconsistency uses WITHIN-CATEGORY CoV; delisting_churn is scaled by coverage consistency.
 
 RLS-SAFE PORTFOLIO DESIGN (portfolio_map, delta summary)
 --------------------------------------------------------
@@ -32,31 +45,21 @@ RLS-SAFE PORTFOLIO DESIGN (portfolio_map, delta summary)
     returns every watched competitor's latest headline metrics. It is cached for the run and
     refreshed after each scan.
   * The portfolio insight is emitted ATTACHED TO THE SCANNED COMPETITOR'S REAL competitor_id.
-    The shared map rides inside that row and in the additive chart_bundle key 'portfolio_map'.
     competitor_id is NEVER NULL: DatabaseManager.save_insights refuses rows without one.
-  * Each competitor's row refreshes when that competitor is scanned (hourly guard cadence).
-  * The "delta since last scan" insight reuses the existing type 'market_timing', so the Flutter
-    app renders it for every tier with ZERO Dart changes.
+  * The "delta since last scan" insight reuses the existing type 'market_timing'.
 
 CONFIDENCE (every insight, 0-1)
 -------------------------------
   confidence = sum(w_k * s_k) / sum(w_k) over data-sufficiency components (sample size,
   history depth, signal consistency). >=0.75 DIRECTIVE | >=0.50 RECOMMENDED | else HYPOTHESIS.
   The score lives in the in-memory dict, in a trailing summary tag and in chart_bundle
-  ('confidence' key). It is NOT a DB column (schema frozen); the optional 'detailed_analysis'
-  column is written only when VELORA_WRITE_DETAILED_ANALYSIS=1 (optional env, off by default).
+  ('confidence' key). It is NOT a DB column (schema frozen).
 
 --selftest CONTRACT (no network, no DB)
 ---------------------------------------
   python main.py --selftest
-  Runs the engine on hardcoded synthetic data for all four tiers and asserts:
-    (a) chart_bundle decodes with all 7 frozen keys of the right types
-    (b) every emitted type is in the allowed vocabulary
-    (c) FREE output has zero pro-only / new-premium types (server gate proven)
-    (d) vulnerability rubric stays in [0,100] and its breakdown sums to the score
-    (e) no insight string holds an unbound placeholder, 'None', 'nan' or 'Infinity'
-    (f) every row carries a non-empty competitor_id
-  plus extra logic checks. Prints PASS/FAIL per check, exits NONZERO on any failure.
+  Runs the engine on hardcoded synthetic data for all four tiers, prints PASS/FAIL per check,
+  exits NONZERO on any failure. 27 original checks + (g)(h)(i) + B1..B6.
 """
 
 import os
@@ -79,7 +82,7 @@ from collections import Counter
 from dataclasses import dataclass, field
 from enum import Enum
 
-VERSION = "5.0.0"
+VERSION = "5.1.0"
 SELFTEST_MODE = "--selftest" in sys.argv
 
 SCRAPERS_DIR = Path(__file__).resolve().parent
@@ -198,6 +201,13 @@ PSYCH_HIGH = 60.0              # % of prices with charm endings => heavy
 PSYCH_LOW = 30.0               # % => light
 ZERO_SIGNAL_EPS = 1.0          # signal <= 1.0% of titles counts as silent
 LOUD_SIGNAL_MEAN = 15.0        # mean of 4 signals >= 15% => loud
+
+# ----- NEW v5.1.0 parameters -----
+MIN_CAT_SAMPLES = 3            # a category needs >= 3 priced products to count toward within-category CoV
+COV_STRUCTURAL_GAP = 0.15      # raw CoV exceeds within-category CoV by >= this => deliberate range breadth
+COVERAGE_TRUST_FLOOR = 0.90    # coverage_consistency below this => disappearance counts are unreliable
+HISTORY_MIN_SCANS = 3          # scans of zero-cut history needed to hard-cap the cut propensity
+CUT_PRIOR_NO_HISTORY = 0.25    # uninformed cut propensity when there is no repricing history at all
 
 # ----- Policy parameters (client-tunable levers, shown in the text next to the price they produce) -----
 FLASH_DISCOUNT = 0.15          # flash-sale depth under competitor median
@@ -477,6 +487,65 @@ def _kw_regex(words: List[str]) -> "re.Pattern[str]":
     return re.compile(r"(?<![a-z0-9])(?:" + alts + r")(?:s|es)?(?![a-z0-9])")
 
 
+# ----- NEW v5.1.0 pure helpers -----
+def coverage_consistency(current_n: int, previous_n: int) -> float:
+    """
+    NEW. coverage_consistency = 1 - |current - previous| / max(previous, 1), clamped to [0, 1].
+    1.0 when there is no previous scan to compare with. Low values mean the two scans did not fetch
+    the same universe (sitemap pagination / blocked endpoints), so disappearance counts are unreliable.
+    """
+    if previous_n <= 0:
+        return 1.0
+    return round(clamp(1.0 - abs(int(current_n) - int(previous_n)) / max(int(previous_n), 1)), 3)
+
+
+def within_category_cov(cat_prices: Dict[str, List[float]], raw_cov: float) -> Dict[str, Any]:
+    """
+    NEW. cov_within_category = sum_c(n_c * CoV_c) / sum_c(n_c), over categories c with n_c >= MIN_CAT_SAMPLES,
+    CoV_c = stdev(prices_c) / mean(prices_c).
+    Categories below MIN_CAT_SAMPLES contribute no indiscipline (their spread is structural only).
+    If no category qualifies the raw CoV is used and flagged (basis = 'raw_fallback').
+    """
+    num = 0.0
+    den = 0.0
+    used = 0
+    for _kw, vals in cat_prices.items():
+        if len(vals) < MIN_CAT_SAMPLES:
+            continue
+        mean = sum(vals) / len(vals)
+        if mean <= 0:
+            continue
+        try:
+            sd = statistics.stdev(vals)
+        except statistics.StatisticsError:
+            sd = 0.0
+        num += len(vals) * (sd / mean)
+        den += len(vals)
+        used += 1
+    if den <= 0:
+        return {"value": round(_num(raw_cov), 2), "n_used": 0, "basis": "raw_fallback"}
+    return {"value": round(num / den, 2), "n_used": used, "basis": "category"}
+
+
+def confidence_path(total_cuts: int, span_days: float, n_scans: int, target: float,
+                    max_days: int = 365) -> Optional[Dict[str, int]]:
+    """
+    NEW (B3). Smallest whole number of additional days x such that the seasonality confidence
+        conf(x) = wconf([(0.4, (cuts + cut_rate*x)/20), (0.6, (span + x)/28)]) >= target
+    assuming the observed cut rate (cuts/span_days) and scan cadence (n_scans/span_days) continue.
+    Returns {"days": x, "scans": ceil(scan_rate*x)} or None when the target is unreachable.
+    """
+    if span_days <= 0:
+        return None
+    cut_rate = total_cuts / span_days
+    scan_rate = n_scans / span_days
+    for x in range(0, max_days + 1):
+        c = wconf([(0.4, (total_cuts + cut_rate * x) / 20.0), (0.6, (span_days + x) / 28.0)])
+        if c >= target:
+            return {"days": x, "scans": int(math.ceil(scan_rate * x))}
+    return None
+
+
 # ===================================================================
 # Margin scenario simulator (PART 3.D)
 # ===================================================================
@@ -524,25 +593,33 @@ VULN_FACTORS: Tuple[Tuple[str, str, float], ...] = (
 
 
 def compute_vulnerability(hhi: float, cov: float, promo_pct: float, n_gaps: int,
-                          velocity_pct: float, n_priced: int, n_disappeared: int) -> Dict[str, Any]:
+                          velocity_pct: float, n_priced: int, n_disappeared: int,
+                          coverage_consistency: float = 1.0) -> Dict[str, Any]:
     """
     score = round(sum(weight_i * sub_i)), weights sum to 100, sub_i in [0,1].
       concentration         = clamp((HHI - 1500) / (5000 - 1500))
-      pricing_inconsistency = clamp((CoV - 0.15) / (0.60 - 0.15))
+      pricing_inconsistency = clamp((CoV_within_category - 0.15) / (0.60 - 0.15))   [FIX 2: `cov` argument
+                              is the WITHIN-CATEGORY CoV, not the cross-category raw CoV]
       promo_rigidity        = clamp(1 - promo% / 10)
       ladder_gaps           = clamp(n_gaps / 6)
       bestseller_dependence = clamp(velocity% / 40)
       thin_catalog          = clamp(1 - n_priced / 100)
-      delisting_churn       = clamp(n_disappeared / 5)
+      delisting_churn       = clamp(n_disappeared / 5) * (coverage_consistency if < COVERAGE_TRUST_FLOOR else 1)
+                              [FIX 3: a coverage artifact cannot max the churn factor]
     """
     hhi, cov, promo_pct, velocity_pct = _num(hhi), _num(cov), _num(promo_pct), _num(velocity_pct)
+    cc = clamp(_num(coverage_consistency, 1.0))
+    churn_scale = cc if cc < COVERAGE_TRUST_FLOOR else 1.0
+    churn_why = f"{n_disappeared} product(s) vanished since the last scan"
+    if churn_scale < 1.0:
+        churn_why += f"; scaled by coverage consistency {cc:.2f} (scan coverage drifted, so the count is unreliable)"
     subs = {
         "concentration": (
             clamp((hhi - HHI_MODERATE) / (HHI_SUB_CEILING - HHI_MODERATE)),
             f"HHI {hhi:,.0f} against a diversified ceiling of {HHI_MODERATE:,.0f}"),
         "pricing_inconsistency": (
             clamp((cov - COV_DISCIPLINED) / (COV_SUB_CEILING - COV_DISCIPLINED)),
-            f"CoV {cov:.2f} against a disciplined ceiling of {COV_DISCIPLINED:.2f}"),
+            f"within-category CoV {cov:.2f} against a disciplined ceiling of {COV_DISCIPLINED:.2f}"),
         "promo_rigidity": (
             clamp(1.0 - promo_pct / 10.0),
             f"promotional share {promo_pct:.1f}% (flexibility is full at 10%)"),
@@ -556,8 +633,8 @@ def compute_vulnerability(hhi: float, cov: float, promo_pct: float, n_gaps: int,
             clamp(1.0 - n_priced / 100.0),
             f"{n_priced} priced products (a deep catalog starts at 100)"),
         "delisting_churn": (
-            clamp(n_disappeared / 5.0),
-            f"{n_disappeared} product(s) vanished since the last scan"),
+            clamp(n_disappeared / 5.0) * churn_scale,
+            churn_why),
     }
     factors = []
     for key, label, weight in VULN_FACTORS:
@@ -646,26 +723,45 @@ class HistoryIndex:
 # Smart stockout guard (PART 2.4)
 # ===================================================================
 def classify_disappearance(raw_disappeared: List[Dict[str, Any]], previous_products: List[Dict[str, Any]],
-                           current_urls: set, history: HistoryIndex) -> Dict[str, Any]:
+                           current_urls: set, history: HistoryIndex,
+                           coverage: Optional[float] = None) -> Dict[str, Any]:
     """
-    ratio <= 0.4                      -> stockout (normal path)
-    ratio >  0.4 and pattern holds    -> contraction (collection retirement)
-    ratio >  0.4 otherwise            -> drift (discard, as v4.5.0 did)
+    ratio <= 0.4 and coverage trusted  -> stockout (normal path)
+    ratio >  0.4 and pattern holds     -> contraction (collection retirement)
+    otherwise                          -> drift (discard, as v4.5.0 did)
     Contraction requires ALL of:
       count >= 3
       stable_share   >= 0.70  (share of vanished SKUs with >=3 prior observations and
                                (max-min)/mean <= 5%)
       together_share >= 0.80  (share of vanished SKUs last seen in the same prior scan)
       replacement    <= 0.50  (new SKUs / vanished SKUs; above that = URL replacement, not shrinkage)
+
+    FIX 3(c) coverage preference: when coverage_consistency < COVERAGE_TRUST_FLOOR the 'vanished' list may
+    simply be 'not fetched this time', so even a small ratio is NOT trusted as a stockout; it is classified
+    'drift' unless the vanished SKUs ALSO satisfy the stable + together contraction test.
+      * coverage passed explicitly -> used as given.
+      * coverage None -> derived as coverage_consistency(len(current_urls), len(previous_products)), and only
+        the shrinkage that the vanished SKUs cannot account for counts as an artifact
+        (len(previous) - len(current) - n_vanished > 0). A fully explained shrink is a normal stockout.
     """
-    result: Dict[str, Any] = {"mode": "none", "stockouts": [], "contraction": None, "ratio": 0.0, "reason": ""}
+    result: Dict[str, Any] = {"mode": "none", "stockouts": [], "contraction": None, "ratio": 0.0,
+                              "reason": "", "coverage": 1.0}
     n = len(raw_disappeared)
     if n == 0:
         return result
     prev_n = max(len(previous_products), 1)
     ratio = n / prev_n
     result["ratio"] = ratio
-    if ratio <= MAX_PLAUSIBLE_STOCKOUT_RATIO:
+
+    if coverage is None:
+        coverage = coverage_consistency(len(current_urls), len(previous_products))
+        unexplained_shrink = len(previous_products) - len(current_urls) - n
+        drift_pref = coverage < COVERAGE_TRUST_FLOOR and unexplained_shrink > 0
+    else:
+        drift_pref = coverage < COVERAGE_TRUST_FLOOR
+    result["coverage"] = coverage
+
+    if ratio <= MAX_PLAUSIBLE_STOCKOUT_RATIO and not drift_pref:
         result["mode"] = "stockout"
         result["stockouts"] = list(raw_disappeared)
         return result
@@ -694,6 +790,8 @@ def classify_disappearance(raw_disappeared: List[Dict[str, Any]], previous_produ
     mean_obs = sum(obs_counts) / n
     result["reason"] = (f"stable_share={stable_share:.0%} together={together:.0%} "
                         f"replacement={replacement:.0%} mean_obs={mean_obs:.1f}")
+    if drift_pref:
+        result["reason"] += f" coverage={coverage:.0%} (below {COVERAGE_TRUST_FLOOR:.0%} trust floor)"
 
     if (n >= CONTRACTION_MIN_ITEMS and stable_share >= CONTRACTION_STABLE_SHARE
             and together >= CONTRACTION_TOGETHER_SHARE and replacement <= CONTRACTION_MAX_REPLACEMENT):
@@ -1229,6 +1327,14 @@ _VOICE_BLURB = {
     "emotional": "benefit-led, feeling-first naming that sells an outcome instead of a spec",
     "minimalist": "short, noun-only names that let the product and the price speak",
 }
+# NEW (B4): stoplist for the title-token frequency table, and the reference words of each voice
+_TITLE_STOP = frozenset({"the", "and", "for", "with", "from", "of", "in", "a", "an", "to", "by", "on", "at",
+                         "men", "mens", "women", "womens", "unisex", "pack", "set", "size", "color", "colour"})
+_GAP_LEXICON: Dict[str, Tuple[str, ...]] = {
+    "technical": ("breathable", "waterproof", "performance", "technical", "series", "spec", "ultra", "max", "pro"),
+    "emotional": tuple(sorted(_EMOTIVE_WORDS)),
+    "minimalist": (),
+}
 
 
 class PremiumDeterministicMarketIntelligenceEngine:
@@ -1286,6 +1392,7 @@ class PremiumDeterministicMarketIntelligenceEngine:
             })
         self.rows = [i for i in self.items if i["price"] > 0]
         self._data: Optional[Dict[str, Any]] = None
+        self._rm_last: Optional[Dict[str, Any]] = None
         self.snapshot_entry: Dict[str, Any] = {}
 
     # ---------------- generic helpers ----------------
@@ -1352,12 +1459,17 @@ class PremiumDeterministicMarketIntelligenceEngine:
 
         category_counts: Counter = Counter()
         category_samples: Dict[str, List[str]] = {}
+        cat_prices: Dict[str, List[float]] = {}   # NEW: first-hit category assignment for within-category CoV
         categorized = 0
         for r in self.rows:
             hit = False
+            first_kw: Optional[str] = None
             for kw, rx in self._CAT_RE.items():
                 if rx.search(r["norm"]):
                     hit = True
+                    if first_kw is None:
+                        first_kw = kw
+                        cat_prices.setdefault(kw, []).append(r["price"])
                     category_counts[kw] += 1
                     samples = category_samples.setdefault(kw, [])
                     if r["raw"] and r["raw"] not in samples and len(samples) < 2:
@@ -1409,8 +1521,19 @@ class PremiumDeterministicMarketIntelligenceEngine:
                         "ratio_to_avg": round(biggest["size"] / avg_price, 2)}
                        if biggest else {"from": 0.0, "to": 0.0, "size": 0.0, "ratio_to_avg": 0.0})
 
-        cov = round(stdev_price / avg_price, 2) if avg_price > 0 else 0.0
-        cov_interp = "inconsistent/opportunistic" if cov > COV_OPPORTUNISTIC else "disciplined/confident" if cov < COV_DISCIPLINED else "moderate"
+        # ---- FIX 2: raw CoV stays EXACTLY as before (frozen headline); discipline uses within-category CoV ----
+        cov = round(stdev_price / avg_price, 2) if avg_price > 0 else 0.0           # cross-category (structural)
+        cov_info = within_category_cov(cat_prices, cov)                              # NEW
+        cov_w = cov_info["value"]                                                    # within-category (discipline)
+        cov_interp = ("inconsistent/opportunistic" if cov_w > COV_OPPORTUNISTIC
+                      else "disciplined/confident" if cov_w < COV_DISCIPLINED else "moderate")
+        structural_diverse = cov_info["basis"] == "category" and (cov - cov_w) >= COV_STRUCTURAL_GAP
+
+        # ---- FIX 3: scan coverage consistency (current universe vs previous universe) ----
+        prev_count = int(_num(self.scan_diff.get('prev_count')))
+        cov_cons = coverage_consistency(len(self.products), prev_count)
+        coverage_low = prev_count > 0 and cov_cons < COVERAGE_TRUST_FLOOR
+        coverage_shift_pct = round(abs(len(self.products) - prev_count) / max(prev_count, 1) * 100, 1) if prev_count > 0 else 0.0
 
         total_items = max(len(self.items), 1)
         promo_pct = round(promotion_count / total_items * 100, 1)
@@ -1422,7 +1545,8 @@ class PremiumDeterministicMarketIntelligenceEngine:
         top_cat_pct = round(top_cat[1] / n * 100, 1)
 
         price_delta = self.hist.price_delta()
-        vuln = compute_vulnerability(hhi_score, cov, promo_pct, len(price_gaps), velocity_pct, n, len(self.disappeared_products))
+        vuln = compute_vulnerability(hhi_score, cov_w, promo_pct, len(price_gaps), velocity_pct, n,
+                                     len(self.disappeared_products), cov_cons)
 
         psych = self._psychological_stats()
         seg = {"budget": round(budget_n / n * 100, 1), "mid": round(mid_n / n * 100, 1), "premium": round(premium_n / n * 100, 1)}
@@ -1440,6 +1564,10 @@ class PremiumDeterministicMarketIntelligenceEngine:
             "p10_price": round(percentile(sorted_prices, 0.10), 2),
             "p90_price": round(percentile(sorted_prices, 0.90), 2),
             "cov": cov, "cov_interp": cov_interp,
+            "cov_within": cov_w, "cov_basis": cov_info["basis"], "n_cov_cats": cov_info["n_used"],
+            "structural_diverse": structural_diverse,
+            "coverage_consistency": cov_cons, "coverage_low": coverage_low,
+            "coverage_shift_pct": coverage_shift_pct, "prev_count": prev_count,
             "hhi_score": hhi_score, "hhi_interp": hhi_interp,
             "top_cat": top_cat[0], "top_cat_count": top_cat[1], "top_cat_pct": top_cat_pct,
             "top_cat_samples": category_samples.get(top_cat[0], []),
@@ -1489,6 +1617,22 @@ class PremiumDeterministicMarketIntelligenceEngine:
         return price, f"Premium alternative to '{anchor}' at {usd(price)}"
 
     # ---------------- text builders ----------------
+    def _dual_cov_text(self, d: Dict[str, Any]) -> str:
+        """
+        NEW (B1). One sentence that always shows BOTH dispersion numbers and which one drives the label:
+          cross-category spread CoV = stdev(all prices) / avg           (structural, a positioning choice)
+          within-category CoV       = sum(n_c * CoV_c) / sum(n_c)       (discipline, drives the label)
+        """
+        raw, cw, k = d['cov'], d['cov_within'], d['n_cov_cats']
+        if d['cov_basis'] != 'category':
+            return (f"no category holds {MIN_CAT_SAMPLES}+ priced products, so the raw cross-category CoV {raw} is used "
+                    f"as the discipline measure ({d['cov_interp']}).")
+        if (raw - cw) >= COV_STRUCTURAL_GAP:
+            return (f"cross-category spread CoV {raw} reflects deliberate range breadth; within-category discipline "
+                    f"CoV {cw} across {k} categories indicates {d['cov_interp']} pricing per line.")
+        return (f"cross-category spread CoV {raw} and within-category discipline CoV {cw} ({k} categories) are close, "
+                f"so range breadth adds little extra dispersion; pricing per line is {d['cov_interp']}.")
+
     def _price_architecture_rec(self, d: Dict[str, Any]) -> str:
         psych, med = d['psych_pct'], d['median_price']
         if psych >= PSYCH_HIGH:
@@ -1512,14 +1656,15 @@ class PremiumDeterministicMarketIntelligenceEngine:
         )
 
     def _cross_reference_text(self, d: Dict[str, Any]) -> Tuple[str, str]:
-        hhi, top_pct, cov, gap, top_cat = d['hhi_score'], d['top_cat_pct'], d['cov'], d['largest_gap_size'], d['top_cat']
+        # FIX 2 consequence: the label (cov_interp) is driven by within-category CoV, so that is the number cited.
+        hhi, top_pct, cw, gap, top_cat = d['hhi_score'], d['top_cat_pct'], d['cov_within'], d['largest_gap_size'], d['top_cat']
         has_gap = gap > 0
         spec_price = usd(round(d['median_price'] * (1 - SPECIALIST_UNDERCUT), 2))
         if hhi > HHI_HIGH and top_pct > 20:
             if has_gap:
                 summary = (
                     f"Connecting the dots: this competitor's highly concentrated catalog (HHI {hhi}) combined with "
-                    f"{d['cov_interp']} pricing (CoV {cov}) creates a structurally exposed position. Their "
+                    f"{d['cov_interp']} pricing (within-category CoV {cw}) creates a structurally exposed position. Their "
                     f"{usd(gap)} price gap sits beside the '{top_cat}' category ({top_pct}% of their catalog) - the "
                     "category they depend on most is also the one with the uncovered price band."
                 )
@@ -1532,7 +1677,7 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 summary = (
                     f"Connecting the dots: this competitor's highly concentrated catalog (HHI {hhi}, '{top_cat}' at "
                     f"{top_pct}%) is priced densely with no exploitable gap - but that density is itself the weakness: "
-                    f"{d['cov_interp']} pricing (CoV {cov}) across a narrow category means one demand shock hits everything."
+                    f"{d['cov_interp']} pricing (within-category CoV {cw}) across a narrow category means one demand shock hits everything."
                 )
                 rec = (
                     f"Don't look for a price gap - there isn't one. Attack the concentration: build a '{top_cat}' "
@@ -1542,7 +1687,7 @@ class PremiumDeterministicMarketIntelligenceEngine:
         elif hhi <= HHI_MODERATE:
             summary = (
                 f"Connecting the dots: this competitor's diversified catalog (HHI {hhi}, top category '{top_cat}' "
-                f"at {top_pct}%) combined with {d['cov_interp']} pricing (CoV {cov}) leaves no single category "
+                f"at {top_pct}%) combined with {d['cov_interp']} pricing (within-category CoV {cw}) leaves no single category "
                 "concentration to attack - their risk is spread thin rather than concentrated."
             )
             rec = (
@@ -1555,7 +1700,7 @@ class PremiumDeterministicMarketIntelligenceEngine:
             if has_gap:
                 summary = (
                     f"Connecting the dots: this competitor sits in a {zone} zone (HHI {hhi}), with '{top_cat}' at "
-                    f"{top_pct}% of catalog and {d['cov_interp']} pricing (CoV {cov}). Their {usd(gap)} price gap is a "
+                    f"{top_pct}% of catalog and {d['cov_interp']} pricing (within-category CoV {cw}). Their {usd(gap)} price gap is a "
                     "real opportunity, but it is not tied to a single over-exposed category."
                 )
                 rec = (
@@ -1565,7 +1710,7 @@ class PremiumDeterministicMarketIntelligenceEngine:
             else:
                 summary = (
                     f"Connecting the dots: this competitor sits in a {zone} zone (HHI {hhi}, '{top_cat}' at "
-                    f"{top_pct}%) with {d['cov_interp']} pricing (CoV {cov}) and NO exploitable price gap - their "
+                    f"{top_pct}%) with {d['cov_interp']} pricing (within-category CoV {cw}) and NO exploitable price gap - their "
                     "price ladder is dense and deliberate, so a gap-filling attack will fail."
                 )
                 rec = (
@@ -1595,10 +1740,17 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 f"{usd(round(med * BUNDLE_PRICE_FACTOR, 2))} bundle to lift basket value without discounting."
             )
         if self.disappeared_products:
-            wins.append(
-                f"Bid on search keywords for their {len(self.disappeared_products)} stocked-out item(s) this week "
-                "to capture orphaned demand before they restock."
-            )
+            if d['coverage_low']:
+                wins.append(
+                    f"First verify that their {len(self.disappeared_products)} apparently missing item(s) are really unlisted "
+                    f"(scan coverage varied {d['coverage_shift_pct']:.0f}% vs the last scan), then bid on search keywords "
+                    "for the confirmed ones before they restock."
+                )
+            else:
+                wins.append(
+                    f"Bid on search keywords for their {len(self.disappeared_products)} stocked-out item(s) this week "
+                    "to capture orphaned demand before they restock."
+                )
         if d['velocity_samples']:
             wins.append(f"Publish comparison content against their bestseller '{d['velocity_samples'][0]}' to intercept high-intent shoppers.")
         if d['top_cat_samples']:
@@ -1614,21 +1766,23 @@ class PremiumDeterministicMarketIntelligenceEngine:
             d30 = f"30 Days: No price gap exists - launch a bundled offer around '{anchor}' and validate against {be_units:,} break-even units."
         d60 = (f"60 Days: Press on their concentration (HHI {d['hhi_score']}) by adding SKUs adjacent to "
                f"'{d['top_cat']}' ({d['top_cat_pct']}% of their catalog).")
-        d90 = (f"90 Days: Keep your own price spread (CoV) at or below {min(d['cov'], COV_DISCIPLINED)} "
-               f"against their {d['cov']} and convert the captured segment into repeat purchases.")
+        d90 = (f"90 Days: Keep your own within-category price spread (CoV) at or below {min(d['cov_within'], COV_DISCIPLINED)} "
+               f"against their {d['cov_within']} and convert the captured segment into repeat purchases.")
         return f"{d30}\n{d60}\n{d90}"
 
     # ---------------- PART 3 analytics ----------------
     def _response_model(self, d: Dict[str, Any]) -> Dict[str, Any]:
         """
         Evidence (all from price_history + titles):
-          sku_cut_share   = SKUs with >=1 cut / SKUs with >=1 interval
-          sku_move_share  = SKUs with >=1 move / SKUs with >=1 interval
-        Propensities:
-          e_hold  = (1 - clamp(cov/0.40)) * (1 - clamp(sku_move_share/0.50))     [no history: cov term only]
+          sku_cut_share   = SKUs with >=1 cut  / SKUs with >=1 interval
+          sku_move_share  = SKUs with >=1 move / SKUs with >=1 interval     (temporal repricing frequency)
+        Propensities (FIX 1: cross-category dispersion is NOT evidence of willingness to discount):
+          e_hold  = (1 - clamp(cov_within/0.40)) * (1 - clamp(move_share/0.50))   [no history: first factor only]
           e_promo = clamp(promo% / 20)
-          e_cut   = 0.6*clamp(sku_cut_share/0.25) + 0.4*clamp(cov/0.60)          [no history: cov term only]
+          e_cut   = 0.6*clamp(cut_share/0.25) + 0.4*clamp(move_share/0.50)        [no history: CUT_PRIOR_NO_HISTORY]
+          HARD RULE: have_hist and cut_share == 0  ->  e_cut = min(e_cut, e_hold)   so p_cut <= p_hold
           p_i     = (e_i + 0.1) / (sum(e) + 0.3)
+        cut_basis / hold_basis / promo_basis are the evidence strings generated from the SAME numbers.
         """
         thr = PRICE_STABLE_THRESHOLD_PCT
         per: Dict[str, Dict[str, int]] = {}
@@ -1647,16 +1801,46 @@ class PremiumDeterministicMarketIntelligenceEngine:
         have_hist = tracked > 0
         cut_share = cut_skus / tracked if have_hist else 0.0
         move_share = move_skus / tracked if have_hist else 0.0
-        cov_hold = 1 - clamp(d['cov'] / COV_OPPORTUNISTIC)
+        n_scans = d['n_scans']
+        cov_w = d['cov_within']
+
+        cov_hold = 1 - clamp(cov_w / COV_OPPORTUNISTIC)
         e_hold = cov_hold * (1 - clamp(move_share / 0.50)) if have_hist else cov_hold
         e_promo = clamp(d['promo_pct'] / 20.0)
-        cov_cut = clamp(d['cov'] / COV_SUB_CEILING)
-        e_cut = (0.6 * clamp(cut_share / 0.25) + 0.4 * cov_cut) if have_hist else cov_cut
+        e_cut_raw = (0.6 * clamp(cut_share / 0.25) + 0.4 * clamp(move_share / 0.50)) if have_hist else CUT_PRIOR_NO_HISTORY
+        never_cut = have_hist and cut_skus == 0
+        e_cut = min(e_cut_raw, e_hold) if never_cut else e_cut_raw
+        capped = never_cut and e_cut_raw > e_hold
+
         total = e_hold + e_promo + e_cut + 0.3
         probs = {"hold": (e_hold + 0.1) / total, "promo": (e_promo + 0.1) / total, "cut": (e_cut + 0.1) / total}
+
+        if not have_hist:
+            cut_basis = "no repricing history yet (first scan): uninformed prior, there is no cut evidence either way"
+        elif never_cut and n_scans >= HISTORY_MIN_SCANS:
+            cut_basis = (f"this brand has never cut: 0 of {tracked} tracked SKUs were ever cut across {n_scans} scans "
+                         "-> low retaliation propensity")
+        elif never_cut:
+            cut_basis = (f"no cuts observed yet: 0 of {tracked} tracked SKUs were cut in {n_scans} scan(s) (short history), "
+                         "so cut propensity is held at or below hold")
+        else:
+            cut_basis = (f"{cut_skus} of {tracked} tracked SKUs ({cut_share * 100:.0f}%) were cut at least once across "
+                         f"{n_scans} scans and {move_skus} ({move_share * 100:.0f}%) were repriced at all")
+        if have_hist:
+            hold_basis = (f"within-category CoV {cov_w} ({d['cov_interp']}); {move_skus} of {tracked} tracked SKUs "
+                          f"({move_share * 100:.0f}%) were repriced across {n_scans} scans")
+        else:
+            hold_basis = f"within-category CoV {cov_w} ({d['cov_interp']}); no repricing history yet"
+        promo_basis = f"promotional share {d['promo_pct']}% of titles"
+
         conf = wconf([(0.3, d['cs']), (0.4, n_tr / 200.0), (0.3, (d['n_scans'] - 1) / 4.0)])
-        return {"probs": probs, "tracked": tracked, "cut_skus": cut_skus, "move_skus": move_skus,
-                "cut_share": cut_share, "move_share": move_share, "n_tr": n_tr, "have_hist": have_hist, "conf": conf}
+        rm = {"probs": probs, "tracked": tracked, "cut_skus": cut_skus, "move_skus": move_skus,
+              "cut_share": cut_share, "move_share": move_share, "n_tr": n_tr, "have_hist": have_hist, "conf": conf,
+              # ---- additive keys (v5.1.0) ----
+              "cut_basis": cut_basis, "hold_basis": hold_basis, "promo_basis": promo_basis,
+              "never_cut": never_cut, "capped": capped, "n_scans": n_scans}
+        self._rm_last = rm
+        return rm
 
     def _sku_pressure(self, d: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         """
@@ -1722,11 +1906,19 @@ class PremiumDeterministicMarketIntelligenceEngine:
         margin = clamp((shares[top] - shares[second]) / 50.0)
         sw = sorted(words_per)
         diversity = round(len(set(all_tokens)) / len(all_tokens), 2) if all_tokens else 0.0
+
+        # ---- B4: literal title tokens USED (frequency minus stoplist) vs OMITTED (gap-voice lexicon) ----
+        tok_counts = Counter(t for t in all_tokens
+                             if len(t) >= 3 and t not in _TITLE_STOP and not re.search(r"\d", t))
+        top_tokens = tok_counts.most_common(6)
+        used_set = set(all_tokens)
+        omitted = [w for w in _GAP_LEXICON.get(gap_voice, ()) if w not in used_set][:6]
         return {
             "n": n, "shares": shares, "voice": voice, "gap_voice": gap_voice,
             "mean_words": round(sum(words_per) / n, 1), "median_words": round(statistics.median(words_per), 1),
             "p25": round(percentile([float(x) for x in sw], 0.25), 1), "p75": round(percentile([float(x) for x in sw], 0.75), 1),
             "long_pct": round(long_n / n * 100, 1), "diversity": diversity,
+            "top_tokens": top_tokens, "omitted": omitted,
             "conf": wconf([(0.6, n / 40.0), (0.4, margin)]),
         }
 
@@ -1734,6 +1926,7 @@ class PremiumDeterministicMarketIntelligenceEngine:
         """
         cut_rate(bucket) = price cuts landing in bucket / SKU-intervals landing in bucket
         flag weekday when cut_rate >= 2.0 x overall (>=10 intervals, >=3 cuts in the bucket)
+        conf = 0.4*clamp(cuts/20) + 0.6*clamp(span_days/28)
         """
         trans = list(self.hist.transitions())
         if len(trans) < SEASON_MIN_TRANSITIONS or self.hist.span_days < SEASON_MIN_SPAN_DAYS:
@@ -1776,7 +1969,31 @@ class PremiumDeterministicMarketIntelligenceEngine:
                         patterns.append(f"cuts cluster at {label} ({rate * 100:.1f}% vs {overall * 100:.1f}% overall)")
         conf = wconf([(0.4, total_cuts / 20.0), (0.6, self.hist.span_days / 28.0)])
         return {"patterns": patterns, "n_tr": n_tr, "total_cuts": total_cuts, "overall": overall,
-                "span_days": round(self.hist.span_days, 1), "conf": conf}
+                "span_days": round(self.hist.span_days, 1), "conf": conf,
+                "span_raw": self.hist.span_days, "n_scans": self.hist.n_scans}
+
+    def _seasonality_path_text(self, se: Dict[str, Any]) -> str:
+        """
+        NEW (B3). Deterministic 'path to confidence' from span_days and n_scans (see confidence_path).
+        Lists the extra days/scans needed to promote the insight to the next voice level(s).
+        """
+        conf = se['conf']
+        if conf >= CONF_DIRECTIVE:
+            return ""
+        targets: List[Tuple[str, float]] = []
+        if conf < CONF_WORKING:
+            targets.append(("RECOMMENDED", CONF_WORKING))
+        targets.append(("DIRECTIVE", CONF_DIRECTIVE))
+        parts: List[str] = []
+        for label, tgt in targets:
+            path = confidence_path(se['total_cuts'], se['span_raw'], se['n_scans'], tgt)
+            if path:
+                parts.append(f"about {path['days']} more day(s) (~{path['scans']} more scans) of history lifts it to {label}")
+            elif se['total_cuts'] == 0:
+                parts.append(f"{label} is out of reach until a first price cut is observed, so keep watching")
+            else:
+                parts.append(f"{label} is not reachable at the current cut rate, so keep watching")
+        return " Path to confidence: " + "; ".join(parts) + " (assuming the observed cut rate and scan cadence continue)."
 
     def _portfolio_view(self, d: Dict[str, Any]) -> List[Dict[str, Any]]:
         entries = [dict(v) for k, v in self.portfolio.items() if k != self.comp_id]
@@ -1790,7 +2007,38 @@ class PremiumDeterministicMarketIntelligenceEngine:
             "hhi": d['hhi_score'], "cov": d['cov'], "vulnerability": d['vulnerability_score'],
             "gap_size": d['largest_gap_size'], "gap_from": d['largest_gap_from'], "gap_to": d['largest_gap_to'],
             "avg_drift_pct": pdv['pct_change'] if pdv else 0.0, "drift_known": bool(pdv),
+            # ---- additive keys (v5.1.0) ----
+            "cov_within": d['cov_within'],
+            "vuln_points": {f['key']: f['points'] for f in d['vulnerability']['factors']},
         }
+
+    def _vuln_trajectory(self, d: Dict[str, Any]) -> str:
+        """
+        NEW (B5). One-line delta against the prior snapshot of THIS competitor in the portfolio pre-load.
+        Score delta always (when a prior snapshot exists); factor-level mover only when the prior snapshot
+        carries 'vuln_points' (in-run cache does; the persisted snapshot carries it once parse_snapshot keeps it).
+        """
+        prior = self.portfolio.get(self.comp_id) if self.comp_id else None
+        if not prior or not (prior.get('scan_at') or prior.get('avg')) or 'vulnerability' not in prior:
+            return ""
+        pv = _num(prior.get('vulnerability'))
+        now = d['vulnerability_score']
+        if abs(now - pv) < 1:
+            line = f"Trajectory since last scan: score unchanged at {now}/100"
+        else:
+            line = f"Trajectory since last scan: score moved {pv:.0f} -> {now} ({now - pv:+.0f})"
+        pp = prior.get('vuln_points')
+        if isinstance(pp, dict):
+            movers = []
+            for f in d['vulnerability']['factors']:
+                if f['key'] in pp:
+                    movers.append((f['points'] - _num(pp.get(f['key'])), f))
+            if movers:
+                delta_pts, f = max(movers, key=lambda x: abs(x[0]))
+                if abs(delta_pts) >= 0.5:
+                    verb = "eased" if delta_pts < 0 else "worsened"
+                    line += f"; largest mover: {f['label'].lower()} {verb} by {abs(delta_pts):.1f} pts"
+        return line + "."
 
     # ---------------- generation ----------------
     def _generate_premium_insights(self) -> List[Dict[str, Any]]:
@@ -1814,12 +2062,14 @@ class PremiumDeterministicMarketIntelligenceEngine:
         # ---- executive_summary ----
         vuln_level = "HIGH" if score > 70 else "MEDIUM" if score > 40 else "LOW"
         seg = d['dominant_segment']
+        diverse_note = " (structurally diverse range)" if d['structural_diverse'] else ""
         exec_summary = (
             f"{d['competitor_name']} operates with {d['products_with_pricing']} priced products averaging {usd(d['avg_price'])}, "
             f"with the {seg} tier dominant ({d[seg + '_pct']}% of priced products). "
             f"The top category, '{d['top_cat']}', accounts for {d['top_cat_pct']}% of the priced catalog "
             f"with an HHI of {d['hhi_score']} ({d['hhi_interp']}). "
-            f"Price discipline is {d['cov_interp']} (CoV: {d['cov']}). "
+            f"Price discipline is {d['cov_interp']}{diverse_note} (within-category CoV: {d['cov_within']}; "
+            f"cross-category spread CoV: {d['cov']}). "
             f"Vulnerability Score: {score}/100 ({vuln_level})."
         )
         if pdv:
@@ -1896,14 +2146,16 @@ class PremiumDeterministicMarketIntelligenceEngine:
              else "Counter their promotional blitz with value-added bundles rather than price cuts."),
             "medium", wconf([(1.0, cs)]), ts, basis))
 
-        # ---- pricing_warfare ----
+        # ---- pricing_warfare (B1: dual-CoV narrative; label driven by within-category CoV) ----
+        inconsistent = d['cov_within'] > COV_OPPORTUNISTIC
         out.append(self._mk(
             "pricing_warfare", "Pricing Discipline Assessment",
-            (f"The Price Coefficient of Variation (CoV) is {d['cov']}, indicating {d['cov_interp']} pricing. "
+            (f"Pricing discipline is {d['cov_interp']} (within-category CoV {d['cov_within']}). "
+             f"{self._dual_cov_text(d)[0].upper()}{self._dual_cov_text(d)[1:]} "
              f"The price spread ranges from {usd(d['min_price'])} to {usd(d['max_price'])}."),
-            (f"Make predictability your edge: hold your own CoV under {COV_DISCIPLINED} against their {d['cov']}, so buyers can trust your price ladder." if d['cov'] > COV_OPPORTUNISTIC
+            (f"Make predictability your edge: hold your own within-category CoV under {COV_DISCIPLINED} against their {d['cov_within']}, so buyers can trust your price ladder." if inconsistent
              else "Study their pricing discipline as a benchmark and use targeted promotions in peripheral categories to drive traffic."),
-            "high" if d['cov'] > COV_OPPORTUNISTIC else "medium", wconf([(1.0, cs)]), ts, basis))
+            "high" if inconsistent else "medium", wconf([(1.0, cs)]), ts, basis))
 
         # ---- market_timing: historical shift ----
         if pdv and abs(pdv['pct_change']) >= PRICE_STABLE_THRESHOLD_PCT:
@@ -1948,7 +2200,7 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 "Counter not by matching their speed, but by establishing an 'evergreen' staple with a lifetime guarantee.",
                 "medium", wconf([(0.5, cs), (0.5, d['freshness_count'] / 10.0)]), ts, basis))
 
-        # ---- price_architecture (charm-pricing logic fixed) ----
+        # ---- price_architecture (charm-pricing logic fixed; B1: dual-CoV sentence) ----
         psych = d['psych_pct']
         spread = round(d['max_price'] - d['min_price'], 2)
         spread_x = round(spread / d['avg_price'], 1) if d['avg_price'] else 0.0
@@ -1969,7 +2221,8 @@ class PremiumDeterministicMarketIntelligenceEngine:
              f"and {usd(d['p10_price'])} at the entry (10th percentile). {psych}% of prices end in a charm ending "
              f"(.99/.95/.97/.49/.90/.88) and {d['round_pct']}% are whole-dollar - a {psych_word} use of charm pricing that signals "
              f"a {position} positioning. With a {usd(d['median_price'])} median against the {usd(d['avg_price'])} mean, {shape} - "
-             "this tells you where their volume lives versus where their margin lives."),
+             "this tells you where their volume lives versus where their margin lives. "
+             f"Dispersion: {self._dual_cov_text(d)}"),
             self._price_architecture_rec(d), "medium", wconf([(1.0, cs)]), ts, basis))
 
         # ---- H: delta since last scan (reuses 'market_timing': Flutter-safe for every tier) ----
@@ -1984,14 +2237,27 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 titles_prices = "; ".join(
                     f"'{p.get('title', 'Unnamed product')}' (was {usd(p.get('current_price', 0))})" for p in shown)
                 prev_count = self.scan_diff.get('prev_count', 0)
+                base_conf = wconf([(0.5, prev_count / 60.0), (0.5, d['n_scans'] / 3.0)])
+                oos_summary = (
+                    f"{len(self.disappeared_products)} product(s) that were in the competitor's catalog on the last "
+                    f"scan are no longer listed, including: {titles_prices}. This typically signals either a stockout "
+                    "or a deliberate delisting - both represent a narrow, time-sensitive window.")
+                oos_rec = (f"Launch a targeted ad campaign within {ACTION_WINDOW} bidding on keywords tied to "
+                           f"'{shown[0].get('title', 'the missing product')}' and similar missing items.")
+                oos_sev = "critical"
+                oos_conf = base_conf
+                if d['coverage_low']:
+                    # FIX 3(a): coverage artifact -> confidence x coverage_consistency, never DIRECTIVE, caveat first
+                    oos_conf = min(round(base_conf * d['coverage_consistency'], 2), round(CONF_DIRECTIVE - 0.01, 2))
+                    oos_summary = (f"Coverage varied {d['coverage_shift_pct']:.0f}% vs the last scan (sitemap drift: "
+                                   f"{len(self.products)} products now vs {d['prev_count']} before); verify before acting.\n"
+                                   + oos_summary)
+                    oos_rec = ("First confirm on the competitor's site that these items are really unlisted. If confirmed, "
+                               + oos_rec[0].lower() + oos_rec[1:])
+                    oos_sev = "medium"
                 out.append(self._mk(
                     "out_of_stock_signal", "Competitor Stockout/Delisting Detected",
-                    (f"{len(self.disappeared_products)} product(s) that were in the competitor's catalog on the last "
-                     f"scan are no longer listed, including: {titles_prices}. This typically signals either a stockout "
-                     "or a deliberate delisting - both represent a narrow, time-sensitive window."),
-                    (f"Launch a targeted ad campaign within {ACTION_WINDOW} bidding on keywords tied to "
-                     f"'{shown[0].get('title', 'the missing product')}' and similar missing items."),
-                    "critical", wconf([(0.5, prev_count / 60.0), (0.5, d['n_scans'] / 3.0)]), ts, basis))
+                    oos_summary, oos_rec, oos_sev, oos_conf, ts, basis))
 
             vuln_lines = "\n".join(
                 f"- {f['label']}: {f['points']:.1f}/{f['weight']:.0f} pts (sub-score {f['sub']:.2f}; {f['justification']})"
@@ -2000,10 +2266,12 @@ class PremiumDeterministicMarketIntelligenceEngine:
                        else "This competitor has notable vulnerabilities in specific areas." if score > 40
                        else "This competitor is relatively well-positioned.")
             top_factors = sorted(vuln['factors'], key=lambda f: -f['points'])[:2]
+            traj = self._vuln_trajectory(d)
+            traj_txt = f"\n{traj}" if traj else ""
             out.append(self._mk(
                 "vulnerability_analysis", "Vulnerability Score: Deep Dive",
                 (f"Vulnerability Score: {score}/100 (weighted rubric, weights sum to 100). {verdict}\n{vuln_lines}\n"
-                 f"Sum of points: {vuln['raw']:.2f} -> {score}/100."),
+                 f"Sum of points: {vuln['raw']:.2f} -> {score}/100.{traj_txt}"),
                 ((f"Immediate action: target the two heaviest factors ({top_factors[0]['label']}, {top_factors[1]['label']}) with coordinated campaigns this quarter." if score > 70
                   else f"Strategic approach: focus on the two heaviest factors ({top_factors[0]['label']}, {top_factors[1]['label']}) and build a differentiated value proposition." if score > 40
                   else "Differentiation strategy: compete on brand storytelling or niche specialization.")),
@@ -2089,23 +2357,32 @@ class PremiumDeterministicMarketIntelligenceEngine:
                      "category-wide moves and marks where they are clearing stock or testing demand."),
                     "medium", sp['conf'], ts, basis))
 
-            # 3.E language fingerprint
+            # 3.E language fingerprint (B4: literal token gap)
             lf = self._language_fingerprint(d)
             if lf:
                 sh = lf['shares']
                 voice_line = (f"dominant voice: {lf['voice']}" if lf['voice'] != "plain descriptive"
                               else "no dominant voice (every voice below 15%): plain descriptive naming")
+                used_txt = ", ".join(f"'{t}' ({c})" for t, c in lf['top_tokens'])
+                tok_sentence = f" Most-used title words: {used_txt}." if used_txt else ""
+                if lf['omitted']:
+                    omit_txt = ", ".join(f"'{w}'" for w in lf['omitted'])
+                    omit_rec = f" Words in the {lf['gap_voice']} register they never use: {omit_txt} - put them in your own naming."
+                elif lf['gap_voice'] == "minimalist":
+                    omit_rec = " Keep your names to three words or fewer, the register they rarely use."
+                else:
+                    omit_rec = ""
                 out.append(self._mk(
                     "language_fingerprint", "Positioning Language Fingerprint",
                     (f"Across {lf['n']} titles: technical {sh['technical']}%, emotional {sh['emotional']}%, minimalist {sh['minimalist']}% "
                      f"(titles of 3 words or fewer). Title length averages {lf['mean_words']} words (median {lf['median_words']}, "
                      f"interquartile {lf['p25']}-{lf['p75']}; {lf['long_pct']}% run 8+ words). Lexical diversity is {lf['diversity']}. "
-                     f"Inferred brand voice - {voice_line}."),
+                     f"Inferred brand voice - {voice_line}.{tok_sentence}"),
                     (f"The least-occupied voice is {lf['gap_voice']} ({sh[lf['gap_voice']]}% of their titles). "
-                     f"Name your line with {_VOICE_BLURB[lf['gap_voice']]} to own the space they leave empty."),
+                     f"Name your line with {_VOICE_BLURB[lf['gap_voice']]} to own the space they leave empty.{omit_rec}"),
                     "medium", lf['conf'], ts, basis))
 
-            # 3.F seasonality
+            # 3.F seasonality (B3: path to confidence)
             se = self._seasonality(d)
             if se:
                 if se['patterns']:
@@ -2120,7 +2397,7 @@ class PremiumDeterministicMarketIntelligenceEngine:
                 out.append(self._mk(
                     "seasonality_cycle", "Discount Cycle & Seasonality Detector",
                     (f"Across {se['n_tr']} SKU-intervals over {se['span_days']} days, {se['total_cuts']} were price cuts "
-                     f"({se['overall'] * 100:.1f}%). Finding: {finding}."),
+                     f"({se['overall'] * 100:.1f}%). Finding: {finding}.{self._seasonality_path_text(se)}"),
                     rec, "medium", se['conf'], ts, basis))
 
             # 3.A portfolio map (pro_plus / enterprise)
@@ -2162,7 +2439,8 @@ class PremiumDeterministicMarketIntelligenceEngine:
             opp_label = f"{usd(launch_price * BASE_RUN_UNITS)} Modeled Price-Gap Revenue ({BASE_RUN_UNITS:,}-unit run)"
         elif self.disappeared_products:
             pool = sum(_num(p.get('current_price')) for p in self.disappeared_products)
-            opp_label = f"{usd(pool)} Stockout-Capture Pool (last known prices)"
+            unverified = " - unverified, coverage varied" if d['coverage_low'] else ""
+            opp_label = f"{usd(pool)} Stockout-Capture Pool (last known prices{unverified})"
         else:
             opp_label = "$0.00 Immediate Gap Opportunity (compete on differentiation instead)"
         dash_rec = ("These three numbers summarize the full report below. Start with the highest-leverage insight for this competitor's specific structure."
@@ -2179,19 +2457,20 @@ class PremiumDeterministicMarketIntelligenceEngine:
 
     def _response_insight(self, d: Dict[str, Any], rm: Dict[str, Any], launch_price: float,
                           ts: str, basis: str) -> Dict[str, Any]:
+        """
+        FIX 1(d) + B2: every printed percentage and its evidence come from the SAME rm numbers.
+        Each line prints: rank, probability, scenario, and 'driver:' = the evidence string built in _response_model.
+        """
         probs = rm['probs']
         cost_floor = round(launch_price * (1 - BASE_MARGIN), 2)
-        if rm['have_hist']:
-            evidence_hist = (f"{rm['cut_skus']} of {rm['tracked']} tracked SKUs ({rm['cut_share'] * 100:.0f}%) were cut at least once and "
-                             f"{rm['move_skus']} ({rm['move_share'] * 100:.0f}%) were repriced at all across {d['n_scans']} scans")
-        else:
-            evidence_hist = "no repricing history yet (first scan), so structure-only evidence is used"
+        cut_label = ("Matches or undercuts with a list-price cut (suppressed by the observed record)"
+                     if rm['never_cut'] else "Matches or undercuts with a list-price cut")
         scen = {
-            "hold": (f"Holds price and ignores the launch - evidence: CoV {d['cov']} ({d['cov_interp']}); {evidence_hist}.",
+            "hold": (f"Holds price and ignores the launch - driver: {rm['hold_basis']}.",
                      f"Launch at {usd(launch_price)}; no defensive repricing is needed."),
-            "promo": (f"Answers with a promotion or bundle rather than a list-price cut - evidence: promotional share {d['promo_pct']}% of titles.",
+            "promo": (f"Answers with a promotion or bundle rather than a list-price cut - driver: {rm['promo_basis']}.",
                       "Pre-empt with a bundle or guarantee and do not match the discount."),
-            "cut": (f"Matches or undercuts with a list-price cut - evidence: {evidence_hist}; CoV {d['cov']}.",
+            "cut": (f"{cut_label} - driver: {rm['cut_basis']}.",
                     f"Hold {usd(launch_price)} and set a walk-away floor at cost basis ({usd(cost_floor)} = price x (1 - {int(BASE_MARGIN * 100)}% margin))."),
         }
         order = sorted(probs, key=lambda k: -probs[k])
@@ -2284,6 +2563,11 @@ class PremiumDeterministicMarketIntelligenceEngine:
             "signals_interpretation": interpret_signals(d['velocity_pct'], d['scarcity_pct'], d['freshness_pct'], d['promo_pct']),
             "confidence": {"overall": overall_conf, "by_type": conf_by_type},
             "portfolio_snapshot": {**self._snapshot(d), "scan_at": datetime.now(timezone.utc).isoformat()},
+            # ---- additive keys (v5.1.0): headlines.cov is untouched ----
+            "cov_structural": d['cov'],
+            "cov_within_category": d['cov_within'],
+            "cov_basis": d['cov_basis'],
+            "coverage_consistency": d['coverage_consistency'],
         }
         pmap = getattr(self, "_pmap", None)
         if pmap and self.rank >= TIER_RANK['pro_plus']:
@@ -2298,7 +2582,54 @@ class PremiumDeterministicMarketIntelligenceEngine:
             self.logger.warning(f"[ENGINE] Tier gate removed {dropped} insight(s) not allowed for tier '{self.tier}'")
         return kept
 
+    def _consistency_guard(self, insights: List[Dict[str, Any]]) -> List[str]:
+        """
+        NEW (B6). Cheap assertion pass over the emitted insights. Any pair whose cited facts contradict the
+        data-backed analysis is logged as [ENGINE] WARN and reconciled to the data (d), never the other way round.
+          1. price gap: 'no gap' wording while a gap exists (or 'gap-filler priced' while none exists)
+          2. coverage: an out_of_stock_signal at DIRECTIVE (or without the caveat) while coverage is low
+          3. response model: cut probability above hold although zero cuts were ever observed
+        Returns the list of issues found (empty = consistent).
+        """
+        issues: List[str] = []
+        d = self.get_data()
+        if "error" in d:
+            return issues
+        gap = d['largest_gap_size']
+        for i in insights:
+            typ = i.get('type')
+            if typ == 'chart_bundle':
+                continue
+            low = f"{i.get('summary', '')} {i.get('ai_recommendation', '')}".lower()
+            if gap > 0 and ("no exploitable price gap" in low or "no price gap exists" in low):
+                msg = f"{typ} claims no price gap but the catalog scan found {usd(gap)}"
+                issues.append(msg)
+                i['summary'] = (f"{i.get('summary', '')}\n[Consistency check: the catalog scan found a {usd(gap)} price gap "
+                                f"({usd(d['largest_gap_from'])} to {usd(d['largest_gap_to'])}); the data-backed value applies.]")
+            elif gap <= 0 and "gap-filler priced at" in low:
+                msg = f"{typ} prices a gap-filler but the catalog scan found no price gap"
+                issues.append(msg)
+                i['summary'] = (f"{i.get('summary', '')}\n[Consistency check: the catalog scan found no uncovered price gap; "
+                                "the data-backed value applies.]")
+            if typ == 'out_of_stock_signal' and d['coverage_low']:
+                if _num(i.get('confidence')) >= CONF_DIRECTIVE or "coverage varied" not in str(i.get('summary', '')).lower():
+                    issues.append("out_of_stock_signal ignored the coverage drift")
+                    i['confidence'] = min(_num(i.get('confidence')), round(CONF_DIRECTIVE - 0.01, 2))
+                    if "coverage varied" not in str(i.get('summary', '')).lower():
+                        i['summary'] = (f"Coverage varied {d['coverage_shift_pct']:.0f}% vs the last scan (sitemap drift); "
+                                        f"verify before acting.\n{i.get('summary', '')}")
+                    i['ai_recommendation'] = str(i.get('ai_recommendation', '')).replace(
+                        VOICE_PREFIX['directive'], VOICE_PREFIX['working'], 1)
+                    i['summary'] = str(i['summary']).replace("DIRECTIVE", voice_label(i['confidence']).upper(), 1)
+        rm = self._rm_last
+        if rm and rm['have_hist'] and rm['cut_skus'] == 0 and rm['probs']['cut'] > rm['probs']['hold'] + 1e-12:
+            issues.append("competitive_response prices cut above hold although no SKU was ever cut")
+        for msg in issues:
+            self.logger.warning(f"[ENGINE] WARN consistency guard: {msg}")
+        return issues
+
     def _finalize(self, insights: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        self._consistency_guard(insights)
         for i in insights:
             if i['type'] == 'chart_bundle':
                 continue
@@ -2655,7 +2986,7 @@ class VeloraScraper:
                         self.logger.warning(
                             f"[STOCKOUT-GUARD] {len(raw_disappeared)}/{len(previous_products)} "
                             f"({ratio:.0%}) products appear to have disappeared for {competitor_name} - "
-                            f"exceeds plausible ratio and the retirement pattern failed ({verdict['reason']}), likely URL/schema drift. Discarding.")
+                            f"exceeds plausible ratio or scan coverage drifted, and the retirement pattern failed ({verdict['reason']}), likely URL/schema drift. Discarding.")
 
             if self.db.upsert_products(cleaned_products) == 0:
                 print_error(f"Failed to save any products for {competitor_name}")
@@ -2834,6 +3165,38 @@ def _st_history(products: List[Dict[str, Any]], scans: int = 14) -> List[Dict[st
     return rows
 
 
+def _st_two_cat_catalog() -> List[Dict[str, Any]]:
+    """Two TIGHT categories far apart in price: low within-category CoV, high raw (cross-category) CoV."""
+    items: List[Dict[str, Any]] = []
+    for i in range(20):
+        items.append({"title": f"Atelier Cotton Sock {chr(65 + i)}", "product_url": f"https://example-store.test/products/s{i}",
+                      "current_price": 8.0 + (i % 3) * 0.5, "image_url": ""})
+    for i in range(20):
+        items.append({"title": f"Atelier Leather Belt {chr(65 + i)}", "product_url": f"https://example-store.test/products/b{i}",
+                      "current_price": 170.0 + (i % 3) * 2.0, "image_url": ""})
+    return items
+
+
+def _st_one_cat_catalog() -> List[Dict[str, Any]]:
+    """ONE category with wildly dispersed prices: high within-category CoV (real indiscipline)."""
+    return [{"title": f"Atelier Running Shoe {chr(65 + i)}", "product_url": f"https://example-store.test/products/r{i}",
+             "current_price": 10.0 + i * 10.0, "image_url": ""} for i in range(30)]
+
+
+def _st_nocut_history(products: List[Dict[str, Any]], scans: int = 12) -> List[Dict[str, Any]]:
+    """Daily scans; one SKU in five is raised 2% from scan 6 on; no price is EVER cut."""
+    start = datetime(2026, 9, 28, 3, 0, tzinfo=timezone.utc)
+    rows = []
+    for k in range(scans):
+        ts = (start + timedelta(days=k)).isoformat()
+        for i, p in enumerate(products):
+            price = float(p["current_price"])
+            if i % 5 == 0 and k >= 6:
+                price = round(price * 1.02, 2)
+            rows.append({"product_url": p["product_url"], "product_title": p["title"], "price": price, "recorded_at": ts})
+    return rows
+
+
 def run_selftest() -> int:
     results: List[Tuple[str, bool, str]] = []
 
@@ -2852,7 +3215,8 @@ def run_selftest() -> int:
         "comp-synth-003": {"name": "Rival Beta", "avg": 95.0, "hhi": 1200.0, "vulnerability": 55.0, "gap_size": 40.0,
                            "avg_drift_pct": -2.0, "drift_known": True, "scarcity": 0, "scan_at": "2026-10-13T00:00:00+00:00"},
         _ST_COMP_ID: {"name": "Synthetic Store", "avg": 60.0, "hhi": 2000.0, "vulnerability": 30.0, "gap_size": 0.0,
-                      "avg_drift_pct": 0.0, "drift_known": True, "scan_at": "2026-10-13T00:00:00+00:00"},
+                      "avg_drift_pct": 0.0, "drift_known": True, "scan_at": "2026-10-13T00:00:00+00:00",
+                      "vuln_points": {"delisting_churn": 12.0, "concentration": 5.0}},
     }
     gone = [{"title": "Retired Cashmere Wrap", "product_url": "https://example-store.test/products/old1", "current_price": 120.0},
             {"title": "Retired Cashmere Cap", "product_url": "https://example-store.test/products/old2", "current_price": 45.0}]
@@ -3009,6 +3373,90 @@ def run_selftest() -> int:
     check("portfolio map needs >=2 competitors", build_portfolio_map([{"name": "A", "avg": 30.0, "hhi": 3000.0}]) is None)
     check("scrub() neutralizes unsafe tokens", "n/a" in scrub("price None and {oops}") and "None" not in scrub("price None"))
 
+    # ------------------------------------------------------------------
+    # v5.1.0 checks: (g) (h) (i) and B1..B6
+    # ------------------------------------------------------------------
+    pro_comp = {"id": _ST_COMP_ID, "name": "Dispersion Store", "_tier": "pro", "_limits": TIER_LIMITS["pro"]}
+
+    def _factor(d_: Dict[str, Any], key: str) -> Dict[str, Any]:
+        return next(f for f in d_["vulnerability"]["factors"] if f["key"] == key)
+
+    # (g) zero-cut history + high raw CoV must never be modeled as a cutter
+    two_cat = _st_two_cat_catalog()
+    g_eng = PremiumDeterministicMarketIntelligenceEngine(pro_comp, two_cat, db=None, history_rows=_st_nocut_history(two_cat))
+    g_out = g_eng.generate_all_insights()
+    g_d = g_eng.get_data()
+    g_rm = g_eng._response_model(g_d)
+    g_row = next(r for r in g_out if r["type"] == "competitive_response")
+    g_ok = (g_d["cov"] > COV_OPPORTUNISTIC and g_rm["cut_skus"] == 0 and g_rm["n_scans"] >= HISTORY_MIN_SCANS
+            and g_rm["probs"]["cut"] <= g_rm["probs"]["hold"] and "never cut" in g_row["summary"])
+    check("(g) response model never contradicts zero-cut history", g_ok,
+          f"cov={g_d['cov']} cut={g_rm['probs']['cut']:.3f} hold={g_rm['probs']['hold']:.3f}")
+
+    # (h) within-category discipline separates diversity from chaos
+    one_cat = _st_one_cat_catalog()
+    h_eng = PremiumDeterministicMarketIntelligenceEngine(pro_comp, one_cat, db=None, history_rows=[])
+    h_d = h_eng.get_data()
+    h_ok = (g_d["cov"] > COV_OPPORTUNISTIC and g_d["cov_interp"] in ("disciplined/confident", "moderate")
+            and g_d["cov_within"] < COV_DISCIPLINED and _factor(g_d, "pricing_inconsistency")["sub"] == 0.0
+            and h_d["cov_interp"] == "inconsistent/opportunistic" and _factor(h_d, "pricing_inconsistency")["sub"] > 0.5)
+    check("(h) within-category discipline separates diversity from chaos", h_ok,
+          f"diverse: raw={g_d['cov']} within={g_d['cov_within']} {g_d['cov_interp']}; chaos: within={h_d['cov_within']} {h_d['cov_interp']}")
+
+    # (i) coverage artifacts never reach DIRECTIVE
+    def _oos_engine(prev_count: int) -> Tuple[Dict[str, Any], Dict[str, Any]]:
+        e = PremiumDeterministicMarketIntelligenceEngine(
+            {"id": _ST_COMP_ID, "name": "Coverage Store", "_tier": "pro", "_limits": TIER_LIMITS["pro"]}, charm, db=None,
+            disappeared_products=gone, history_rows=hist_charm,
+            scan_diff={"prev_count": prev_count, "new": 0, "removed_raw": 2})
+        rows = e.generate_all_insights()
+        return next(r for r in rows if r["type"] == "out_of_stock_signal"), e.get_data()
+    oos_full, d_full = _oos_engine(64)
+    oos_low, d_low = _oos_engine(80)
+    churn_full = _factor(d_full, "delisting_churn")["points"]
+    churn_low = _factor(d_low, "delisting_churn")["points"]
+    cls_cov = classify_disappearance(prev[7:], prev, {normalize_product_url(p["product_url"]) for p in prev[:5]}, HistoryIndex([]))
+    i_ok = (oos_full["confidence"] >= CONF_DIRECTIVE
+            and oos_low["confidence"] < CONF_DIRECTIVE and "Coverage varied" in oos_low["summary"]
+            and "DIRECTIVE" not in oos_low["summary"] and not oos_low["ai_recommendation"].startswith(VOICE_PREFIX["directive"])
+            and churn_low < churn_full and cls_cov["mode"] == "drift")
+    check("(i) coverage artifacts never reach DIRECTIVE", i_ok,
+          f"conf_low={oos_low['confidence']} churn {churn_low} vs {churn_full} classifier={cls_cov['mode']}")
+
+    # B1 dual-CoV narrative in pricing_warfare and price_architecture
+    pw = next(r for r in g_out if r["type"] == "pricing_warfare")["summary"]
+    pa = next(r for r in g_out if r["type"] == "price_architecture")["summary"]
+    b1_ok = all(("within-category" in t.lower() and "cross-category" in t.lower() and "range breadth" in t.lower()) for t in (pw, pa))
+    check("(B1) pricing insights cite structural AND within-category dispersion", b1_ok, pw[:140])
+
+    # B2 evidence trail: every probability prints its driver, built from the same counts
+    cr_txt = next(r for r in outputs["pro"] if r["type"] == "competitive_response")["summary"]
+    b2_ok = cr_txt.count("driver:") == 3 and "tracked SKUs" in cr_txt and "scans" in cr_txt
+    check("(B2) response model prints a driver + exact counts beside each probability", b2_ok, cr_txt[:160])
+
+    # B3 seasonality path to confidence
+    se_txt = next(r for r in outputs["pro"] if r["type"] == "seasonality_cycle")["summary"]
+    path_probe = confidence_path(14, 13.0, 14, CONF_DIRECTIVE)
+    check("(B3) seasonality prints a deterministic path to confidence",
+          "Path to confidence" in se_txt and bool(path_probe) and path_probe["days"] > 0, se_txt[-200:])
+
+    # B4 language fingerprint keyword gap
+    lf_txt = next(r for r in outputs["pro"] if r["type"] == "language_fingerprint")["summary"]
+    check("(B4) language fingerprint lists the title tokens they use", "Most-used title words" in lf_txt, lf_txt[-160:])
+
+    # B5 vulnerability trajectory
+    vt = next(r for r in outputs["pro"] if r["type"] == "vulnerability_analysis")["summary"]
+    check("(B5) vulnerability analysis carries a trajectory delta", "Trajectory since last scan" in vt and "largest mover" in vt, vt[-200:])
+
+    # B6 cross-insight consistency guard
+    probe = [{"type": "product_gap", "title": "t", "summary": "No exploitable price gap detected: probe",
+              "ai_recommendation": "probe", "severity": "medium", "confidence": 0.5, "competitor_id": _ST_COMP_ID}]
+    guard_eng = PremiumDeterministicMarketIntelligenceEngine(pro_comp, charm, db=None, history_rows=hist_charm)
+    issues = guard_eng._consistency_guard(probe)
+    clean_issues = guard_eng._consistency_guard([r for r in outputs["pro"] if r["type"] != "chart_bundle"])
+    check("(B6) consistency guard flags a contradiction and passes clean output",
+          bool(issues) and "Consistency check" in probe[0]["summary"] and not clean_issues, f"issues={issues} clean={clean_issues}")
+
     failed = [n for n, ok, _ in results if not ok]
     print(f"\nSELFTEST RESULT: {len(results) - len(failed)}/{len(results)} checks passed")
     if failed:
@@ -3038,3 +3486,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+    
